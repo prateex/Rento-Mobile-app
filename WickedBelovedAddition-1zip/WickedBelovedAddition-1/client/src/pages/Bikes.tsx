@@ -69,10 +69,13 @@ export default function Bikes() {
     const handleAddDamageMock = () => {
        setPreviousDamages([...previousDamages, {
           id: Math.random().toString(36).substr(2, 9),
+          type: 'Scratch',
+          severity: 'minor',
           date: new Date().toISOString(),
           photoUrls: ['https://images.unsplash.com/photo-1449426468159-d96dbf08f19f?auto=format&fit=crop&q=80&w=800'],
           notes: 'Previous damage noted on entry',
-          severity: 'minor'
+          addedBy: user?.id || 'unknown',
+          addedAt: new Date().toISOString()
        }]);
     }
 
@@ -208,10 +211,13 @@ export default function Bikes() {
     const onSubmit = (data: any) => {
       const newDamage: Damage = {
         id: Math.random().toString(36).substr(2, 9),
+        type: data.type || 'Other',
+        severity: data.severity,
         date: new Date().toISOString(),
-        photoUrls: ['https://images.unsplash.com/photo-1449426468159-d96dbf08f19f?auto=format&fit=crop&q=80&w=800'], // Mock photo
+        photoUrls: ['https://images.unsplash.com/photo-1449426468159-d96dbf08f19f?auto=format&fit=crop&q=80&w=800'],
         notes: data.notes,
-        severity: data.severity
+        addedBy: user?.id || 'unknown',
+        addedAt: new Date().toISOString()
       };
       
       const bike = bikes.find(b => b.id === bikeId);

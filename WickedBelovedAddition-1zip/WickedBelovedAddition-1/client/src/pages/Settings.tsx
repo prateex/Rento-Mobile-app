@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { LogOut, Store, Users, FileText, Shield, ChevronRight, Eye, EyeOff, Plus, UserPlus } from "lucide-react";
+import { LogOut, Store, Users, FileText, Shield, ChevronRight, Eye, EyeOff, Plus, UserPlus, Calendar } from "lucide-react";
 import { useLocation } from "wouter";
 import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -15,7 +15,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useState } from "react";
 
 export default function Settings() {
-  const { user, logout, settings, toggleRevenueVisibility, users, addUser, removeUser } = useStore();
+  const { user, logout, settings, toggleRevenueVisibility, toggleBackdateOverride, users, addUser, removeUser } = useStore();
   const [, setLocation] = useLocation();
   const [isAddStaffOpen, setIsAddStaffOpen] = useState(false);
   const { toast } = useToast();
@@ -103,6 +103,21 @@ export default function Settings() {
                      onCheckedChange={toggleRevenueVisibility}
                    />
                  </div>
+                 
+                 {user?.role === 'admin' && (
+                   <div className="flex items-center justify-between pt-2 border-t">
+                     <div className="space-y-0.5">
+                       <Label className="text-base flex items-center gap-2">
+                         <Calendar size={14} /> Allow Back-dating
+                       </Label>
+                       <p className="text-xs text-muted-foreground">Allow bookings older than 7 days</p>
+                     </div>
+                     <Switch 
+                       checked={settings.allowBackdateOverride}
+                       onCheckedChange={toggleBackdateOverride}
+                     />
+                   </div>
+                 )}
               </CardContent>
             </Card>
 

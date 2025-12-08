@@ -1,0 +1,112 @@
+PROJECT: Booking UX & Behavior Improvements — Calendar, Date/Time, Payments, Returns, Search, Damages
+
+Summary
+Make the booking flows and calendar interactions intuitive and safe. When creating or managing bookings users must see proper date/time pickers, limited back-dating, payment toggles, return/taken states with invoicing over WhatsApp, vehicle numbers visible in calendar, improved quick-search UI, and a real "Add previous damage" flow (type + photo).
+
+Tech stack assumptions (use existing stack)
+- Frontend: React / TypeScript (Expo/ReactNative or React Web — follow current project stack)
+- Date library: date-fns
+- Image upload: existing Firebase Storage / server endpoint
+- Linking: `Linking.openURL('tel:')` / `https://wa.me/` for WhatsApp
+- Backend: Firebase functions OR Node API — implement validation server-side where indicated
+
+CHANGES TO IMPLEMENT (numbered to match request)
+
+1) NEW BOOKING: Open Calendar + Time Picker by default
+- Behavior: When the user clicks the **New Booking** button (from header / Quick Action / Bookings tab), open the *New Booking modal/screen* **with calendar & time pickers visible** — NOT manual date input.
+- UI: Calendar day selector (month/week toggle) at top, with time pickers for `startTime` and `endTime` next to/below the calendar. Use a combined date+time picker UI (date at top, time pickers below).
+- Default values: `startTime = now rounded up to next 15 minutes`, `endTime = startTime + 8 hours` (configurable).
+
+2) BACK-DATING LIMIT: Only allow booking up to 7 days in the past
+- Validation: On new booking creation or edit, validate `startTime >= now - 7 days`. If `startTime` is earlier than allowed, block submission and show inline error: *"Bookings can only be created/edited up to 7 days in the past."*
+- Server-side: Enforce the same rule on API/Cloud Function. Return HTTP 400 with descriptive message if violated.
+- Admin override: Optionally allow Admin role to bypass (implement a flag `allowBackdateOverride` in settings — default false). If override used require confirmation modal and write audit log entry {by, timestamp, reason}.
+
+3) CALENDAR: Mark booking as Paid
+- In Calendar day drill-down and booking detail modal (both calendar and bookings list):
+  - Add a toggle/button `Mark as Paid` or an inline payment status dropdown: `Unpaid | Partial | Paid`.
+  - When marked Paid, set `booking.paymentStatus = 'Paid'` and `booking.paidAt = now`, `booking.paidBy = currentUserId`.
+  - Record a `booking.history` entry for payment changes.
+- Backend: provide endpoint/CF `PATCH /bookings/:id/payment` to set status; enforce auth.
+
+4) BOOKINGS TAB: Mark bike as Taken & Returned + WhatsApp Invoice
+- Add two actions on booking detail and list item:
+  - `Mark as Taken` (when customer picks up): sets `booking.status = 'Active'`, `booking.takenAt = now`, `booking.takenBy = userId`. Only allowed if status === 'Booked'.
+  - `Mark as Returned` (when returned): sets `booking.status = 'Completed'`, `booking.returnedAt = now`, runs availability reconciliation for that bike and writes audit log.
+- When returned: 
+  - Calculate final charges (rent + deposit adjustments + damage fees if present). Update `booking.totalAmount` and `booking.finalized = true`.
+  - Provide `Send Invoice via WhatsApp` button which generates invoice summary link or PDF and opens `https://wa.me/<number>?text=<encoded-message-or-link>`.
+  - If PDF generation is server-side, return public temporary link; else generate shareable text summary and open WhatsApp.
+- Backend: protect actions with role checks and write audit log entries for taken/returned actions.
+
+5) CALENDAR VIEW: Show vehicle (registration) number
+- In calendar month/week/day cells and in the day drill-down list, show `bike.regNo` or `bike.regNumber` next to bike name for each booking event so each booking is quickly identifiable.
+- If multi-bike booking, show all regNos or the primary one + `+N more` tooltip.
+
+6) BIKES TAB: Replace large search button with compact quick-date shortcuts
+- Change UI: Replace the currently large search button with a smaller search icon (compact) and add three new quick-filter buttons:
+  - `Today` (shows availability/status for today)
+  - `Tomorrow`
+  - `Date` icon (opens small calendar to pick a day)
+- Behavior:
+  - Clicking a quick-date filters the Bikes list to availability on that date (same logic as calendar availability).
+  - The search input remains but with compact icon & placeholder; keep search functionality.
+
+7) ADD PREVIOUS DAMAGES UX while adding bike
+- Replace the current simple `Add` that just text with a real form:
+  - Button: `Add Damage` → opens inline form with fields:
+    - Damage Type (dropdown: Scratch, Dent, Broken Mirror, Tyre, Mechanical, Other)
+    - Severity (Minor / Major)
+    - Date of damage (default today)
+    - Photo upload (1..4 images)
+    - Notes (optional)
+  - On save, push to `bike.damages` array: { id, type, severity, date, photoUrls[], notes, addedBy, addedAt }.
+  - Display damage thumbnails in the Add Bike flow and allow removal before finalizing Add Bike form.
+- Backend: Ensure damage entries include uploader info for audit and store photos in Storage.
+
+DATA MODEL CHANGES (if needed)
+- Booking: add `startTime`, `endTime` (ISO timestamps), `takenAt?`, `returnedAt?`, `paidAt?`, `finalized?: boolean`, `paymentStatus: 'Unpaid'|'Partial'|'Paid'`, `refundAmount?`.
+- Bike: ensure `regNo` field exists and is used in calendar display.
+- Damage: { id, type, severity, date, photoUrls: string[], notes, addedBy, addedAt }
+
+BACKEND VALIDATION & AUDIT
+- All state-changing endpoints (mark taken/returned, mark paid, create bookings) must:
+  - Validate request, enforce role permissions, validate back-dating rule.
+  - Write an audit/history entry: `{ action, byUserId, ip?, timestamp, meta }` into `booking.history` or dedicated `logs` collection.
+
+UI/UX & Accessibility Notes
+- Date/time pickers must be keyboard & mobile friendly. Use combined date/time pickers; if platform lacks native, use accessible UI components.
+- Confirmation modals for destructive actions (cancel booking, mark returned with charges).
+- Show inline toast/snackbar confirmations after actions.
+- Buttons should be at least 44x44 tappable areas on mobile.
+
+TESTS & QA
+- Unit tests:
+  - `createBooking` rejects `startTime < now - 7 days` (unless admin override enabled).
+  - `markReturned` updates status and availability reconciliation.
+  - `markPaid` updates paymentStatus and writes history.
+- Manual QA scenarios:
+  1. Click New Booking → calendar + time pickers open → select day/time → create booking.
+  2. Try to create booking with `startTime` older than 8 days (should fail). Create booking 5 days old (should succeed).
+  3. From Calendar drill-down mark booking as Paid → verify booking.paymentStatus updates and history entry created.
+  4. Mark booking as Taken → then Mark as Returned; verify finalization and invoice send via WhatsApp opens app with pre-filled message/link.
+  5. Ensure calendar shows vehicle regNo for each booking cell.
+  6. Bikes tab: clicking Today/Tomorrow/Date filters results as expected.
+  7. Add Bike flow: add previous damage with type + photo and verify stored and visible.
+
+Acceptance Criteria
+- New Booking button opens calendar + time pickers; manual input is still possible but secondary.
+- Back-dating is limited to 7 days unless admin override enabled with audit log.
+- Calendar and booking detail allow marking payment status; history records change.
+- Bookings can be marked Taken and Returned; returned bookings get invoice option to send via WhatsApp.
+- Calendar events display vehicle registration numbers.
+- Bikes tab quick filters (Today/Tomorrow/Date) are added and search button is compacted.
+- Add previous damage flow adds full damage entries with type + photo and persists to DB.
+
+Deliverables
+- Updated client screens/components with clear comments for New Booking modal, Calendar drill-down, Bookings list actions, Bikes tab UI, and Add Bike damage UI.
+- Backend/Cloud Function/Node updates for validations, payment marking, taken/returned endpoints and audit logs.
+- README updated for any new env vars (e.g. PDF/invoice generation or WhatsApp link generation).
+- Short demo screencast (30s) showing: New Booking calendar open, backdate block, mark paid, mark taken/returned, sending invoice via WhatsApp, add previous damage flow.
+
+If you want, I can now generate the **NewBooking modal component** code (React+TypeScript) with date+time pickers and client-side validation for the 7-day backdate rule — tell me which framework variant (React Web or React Native / Expo) and I’ll produce the component code ready to paste into your repo.

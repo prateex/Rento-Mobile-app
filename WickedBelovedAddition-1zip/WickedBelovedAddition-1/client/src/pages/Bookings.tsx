@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Calendar as CalendarIcon, Plus, Clock, ArrowRight, IndianRupee, CheckCircle, Edit2, Trash2, UserPlus, Phone, MessageCircle, FileText, Filter, X, CornerDownLeft, Ban } from "lucide-react";
-import { format } from "date-fns";
+import { format, addDays, subDays, setHours, setMinutes, startOfDay } from "date-fns";
 import { useForm } from "react-hook-form";
 import { useToast } from "@/hooks/use-toast";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
@@ -15,6 +15,7 @@ import { useLocation } from "wouter";
 import { cn } from "@/lib/utils";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
+import { Calendar } from "@/components/ui/calendar";
 
 export default function Bookings() {
   const { bookings, bikes, customers, addBooking, updateBooking, deleteBooking, cancelBooking, returnBooking, user, addCustomer } = useStore();
@@ -51,61 +52,102 @@ export default function Bookings() {
   }, [bookings, filterStatus]);
 
   const BookingForm = ({ initialData, onClose }: { initialData?: Booking, onClose: () => void }) => {
+    const { settings } = useStore();
     const [dateError, setDateError] = useState<string | null>(null);
+    const [backdateError, setBackdateError] = useState<string | null>(null);
     
-    const formatDateTimeLocal = (date: Date) => {
-      const pad = (n: number) => n.toString().padStart(2, '0');
-      return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+    const roundUpTo15Minutes = (date: Date) => {
+      const minutes = date.getMinutes();
+      const remainder = minutes % 15;
+      const roundedMinutes = remainder === 0 ? minutes : minutes + (15 - remainder);
+      const result = new Date(date);
+      result.setMinutes(roundedMinutes);
+      result.setSeconds(0);
+      result.setMilliseconds(0);
+      if (roundedMinutes >= 60) {
+        result.setMinutes(0);
+        result.setHours(result.getHours() + 1);
+      }
+      return result;
     };
     
-    const getInitialStartDate = () => {
+    const getInitialStartDateTime = () => {
       if (initialData?.startDate) {
-        return formatDateTimeLocal(new Date(initialData.startDate));
+        return new Date(initialData.startDate);
       }
-      return formatDateTimeLocal(new Date());
+      return roundUpTo15Minutes(new Date());
     };
     
-    const getInitialEndDate = () => {
+    const getInitialEndDateTime = () => {
       if (initialData?.endDate) {
-        return formatDateTimeLocal(new Date(initialData.endDate));
+        return new Date(initialData.endDate);
       }
-      return formatDateTimeLocal(new Date(Date.now() + 86400000));
+      const start = getInitialStartDateTime();
+      return new Date(start.getTime() + 8 * 60 * 60 * 1000);
     };
+    
+    const [startDate, setStartDate] = useState<Date>(startOfDay(getInitialStartDateTime()));
+    const [startHour, setStartHour] = useState<string>(getInitialStartDateTime().getHours().toString().padStart(2, '0'));
+    const [startMinute, setStartMinute] = useState<string>((Math.floor(getInitialStartDateTime().getMinutes() / 15) * 15).toString().padStart(2, '0'));
+    
+    const [endDate, setEndDate] = useState<Date>(startOfDay(getInitialEndDateTime()));
+    const [endHour, setEndHour] = useState<string>(getInitialEndDateTime().getHours().toString().padStart(2, '0'));
+    const [endMinute, setEndMinute] = useState<string>((Math.floor(getInitialEndDateTime().getMinutes() / 15) * 15).toString().padStart(2, '0'));
     
     const { register, handleSubmit, watch, setValue, formState: { errors } } = useForm({
       defaultValues: {
-        startDate: getInitialStartDate(),
-        endDate: getInitialEndDate(),
         bikeIds: initialData?.bikeIds || [],
         customerId: initialData?.customerId || '',
         rent: initialData?.rent || 0,
         deposit: initialData?.deposit || 0
       }
     });
+    
+    const hours = Array.from({ length: 24 }, (_, i) => i.toString().padStart(2, '0'));
+    const minutes = ['00', '15', '30', '45'];
+    
+    const getStartDateTime = () => {
+      const date = new Date(startDate);
+      date.setHours(parseInt(startHour), parseInt(startMinute), 0, 0);
+      return date;
+    };
+    
+    const getEndDateTime = () => {
+      const date = new Date(endDate);
+      date.setHours(parseInt(endHour), parseInt(endMinute), 0, 0);
+      return date;
+    };
+    
+    const minDate = settings.allowBackdateOverride ? undefined : subDays(new Date(), 7);
 
     const selectedBikeIds = watch('bikeIds') || [];
     
-    // Watch date values
-    const startDate = watch('startDate');
-    const endDate = watch('endDate');
-    
-    // Validate dates in real-time
     useEffect(() => {
-      if (startDate && endDate) {
-        const start = new Date(startDate).getTime();
-        const end = new Date(endDate).getTime();
-        if (end <= start) {
-          setDateError("End date/time must be after start date/time");
-        } else {
-          setDateError(null);
-        }
+      const startDateTime = getStartDateTime();
+      const endDateTime = getEndDateTime();
+      const start = startDateTime.getTime();
+      const end = endDateTime.getTime();
+      
+      if (end <= start) {
+        setDateError("End date/time must be after start date/time");
+      } else {
+        setDateError(null);
       }
-    }, [startDate, endDate]);
+      
+      const sevenDaysAgo = subDays(new Date(), 7).getTime();
+      if (!settings.allowBackdateOverride && start < sevenDaysAgo) {
+        setBackdateError("Bookings can only be created up to 7 days in the past");
+      } else {
+        setBackdateError(null);
+      }
+    }, [startDate, startHour, startMinute, endDate, endHour, endMinute]);
     
     useEffect(() => {
-       if (startDate && endDate && selectedBikeIds.length > 0 && !initialData) {
-          const start = new Date(startDate).getTime();
-          const end = new Date(endDate).getTime();
+       if (selectedBikeIds.length > 0 && !initialData) {
+          const startDateTime = getStartDateTime();
+          const endDateTime = getEndDateTime();
+          const start = startDateTime.getTime();
+          const end = endDateTime.getTime();
           const diffDays = Math.max(1, Math.ceil((end - start) / (1000 * 60 * 60 * 24)));
           
           const totalDailyPrice = bikes
@@ -115,22 +157,22 @@ export default function Bookings() {
           const calcRent = diffDays * totalDailyPrice;
           setValue('rent', calcRent);
        }
-    }, [startDate, endDate, selectedBikeIds]);
+    }, [startDate, startHour, startMinute, endDate, endHour, endMinute, selectedBikeIds]);
 
     const onSubmit = (data: any) => {
-      // Validate dates
-      const startDateTime = new Date(data.startDate);
-      const endDateTime = new Date(data.endDate);
+      const startDateTime = getStartDateTime();
+      const endDateTime = getEndDateTime();
       const start = startDateTime.getTime();
       const end = endDateTime.getTime();
       
-      if (isNaN(start) || isNaN(end)) {
-        toast({ title: "Invalid Dates", description: "Please enter valid start and end dates.", variant: "destructive" });
+      if (end <= start) {
+        toast({ title: "Invalid Dates", description: "End date/time must be after start date/time.", variant: "destructive" });
         return;
       }
       
-      if (end <= start) {
-        toast({ title: "Invalid Dates", description: "End date/time must be after start date/time.", variant: "destructive" });
+      const sevenDaysAgo = subDays(new Date(), 7).getTime();
+      if (!settings.allowBackdateOverride && start < sevenDaysAgo) {
+        toast({ title: "Back-dating Error", description: "Bookings can only be created up to 7 days in the past.", variant: "destructive" });
         return;
       }
 
@@ -158,7 +200,6 @@ export default function Bookings() {
       
       const total = Number(data.rent) + Number(data.deposit);
       
-      // Convert to ISO strings for storage
       const startDateISO = startDateTime.toISOString();
       const endDateISO = endDateTime.toISOString();
 
@@ -184,7 +225,7 @@ export default function Bookings() {
           deposit: Number(data.deposit),
           totalAmount: total,
           status: 'Booked',
-          paymentStatus: 'Pending',
+          paymentStatus: 'Unpaid',
           history: []
         };
         addBooking(newBooking);
@@ -262,34 +303,103 @@ export default function Bookings() {
           )}
         </div>
 
-        <div className="space-y-2">
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Start Date & Time</label>
-              <Input 
-                type="datetime-local" 
-                {...register("startDate", { required: "Start date is required" })}
-                className={cn(errors.startDate && "border-red-500")}
+        <div className="space-y-3">
+          <label className="text-sm font-medium flex items-center gap-2">
+            <CalendarIcon size={16} /> Select Dates
+          </label>
+          
+          <div className="border rounded-lg p-3 bg-zinc-50">
+            <div className="flex justify-center">
+              <Calendar 
+                mode="range"
+                selected={{ from: startDate, to: endDate }}
+                onSelect={(range) => {
+                  if (range?.from) {
+                    setStartDate(startOfDay(range.from));
+                    if (range?.to) {
+                      setEndDate(startOfDay(range.to));
+                    } else {
+                      setEndDate(startOfDay(range.from));
+                    }
+                  }
+                }}
+                disabled={minDate ? { before: minDate } : undefined}
+                numberOfMonths={1}
+                className="rounded-md"
               />
-              {errors.startDate && (
-                <p className="text-xs text-red-500">{errors.startDate.message as string || "Required"}</p>
-              )}
-            </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium">End Date & Time</label>
-              <Input 
-                type="datetime-local" 
-                {...register("endDate", { required: "End date is required" })}
-                className={cn(errors.endDate && "border-red-500")}
-              />
-              {errors.endDate && (
-                <p className="text-xs text-red-500">{errors.endDate.message as string || "Required"}</p>
-              )}
             </div>
           </div>
+          
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <label className="text-xs font-medium text-muted-foreground flex items-center gap-1">
+                <Clock size={12} /> Start Time
+              </label>
+              <div className="flex gap-1">
+                <Select value={startHour} onValueChange={setStartHour}>
+                  <SelectTrigger className="w-[70px]">
+                    <SelectValue placeholder="HH" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {hours.map(h => (
+                      <SelectItem key={h} value={h}>{h}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <span className="flex items-center">:</span>
+                <Select value={startMinute} onValueChange={setStartMinute}>
+                  <SelectTrigger className="w-[70px]">
+                    <SelectValue placeholder="MM" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {minutes.map(m => (
+                      <SelectItem key={m} value={m}>{m}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <p className="text-[10px] text-muted-foreground">{format(startDate, 'MMM d, yyyy')}</p>
+            </div>
+            
+            <div className="space-y-2">
+              <label className="text-xs font-medium text-muted-foreground flex items-center gap-1">
+                <Clock size={12} /> End Time
+              </label>
+              <div className="flex gap-1">
+                <Select value={endHour} onValueChange={setEndHour}>
+                  <SelectTrigger className="w-[70px]">
+                    <SelectValue placeholder="HH" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {hours.map(h => (
+                      <SelectItem key={h} value={h}>{h}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <span className="flex items-center">:</span>
+                <Select value={endMinute} onValueChange={setEndMinute}>
+                  <SelectTrigger className="w-[70px]">
+                    <SelectValue placeholder="MM" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {minutes.map(m => (
+                      <SelectItem key={m} value={m}>{m}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <p className="text-[10px] text-muted-foreground">{format(endDate, 'MMM d, yyyy')}</p>
+            </div>
+          </div>
+          
           {dateError && (
             <p className="text-xs text-red-500 flex items-center gap-1">
               <X size={12} /> {dateError}
+            </p>
+          )}
+          {backdateError && (
+            <p className="text-xs text-red-500 flex items-center gap-1">
+              <X size={12} /> {backdateError}
             </p>
           )}
         </div>

@@ -11,13 +11,17 @@ export interface User {
   email?: string;
 }
 
+export type DamageType = 'Scratch' | 'Dent' | 'Broken Mirror' | 'Tyre' | 'Mechanical' | 'Other';
+
 export interface Damage {
   id: string;
+  type: DamageType;
+  severity: 'minor' | 'major';
   date: string;
   photoUrls: string[];
   notes: string;
-  severity: 'minor' | 'major';
-  reportedBy?: string;
+  addedBy: string;
+  addedAt: string;
 }
 
 export interface Bike {
@@ -59,21 +63,27 @@ export interface BookingHistory {
 
 export interface Booking {
   id: string;
-  bikeIds: string[]; // Changed from single bikeId to array
+  bikeIds: string[];
   customerId: string;
-  startDate: string; // ISO timestamp
-  endDate: string; // ISO timestamp
+  startDate: string;
+  endDate: string;
   rent: number;
   deposit: number;
   totalAmount: number;
   status: 'Booked' | 'Active' | 'Completed' | 'Cancelled' | 'Deleted';
-  paymentStatus: 'Paid' | 'Partial' | 'Pending';
+  paymentStatus: 'Paid' | 'Partial' | 'Unpaid';
   startImage?: string;
   endImage?: string;
   history: BookingHistory[];
+  takenAt?: string;
+  takenBy?: string;
   returnedAt?: string;
+  returnedBy?: string;
+  paidAt?: string;
+  paidBy?: string;
   cancelledAt?: string;
   refundAmount?: number;
+  finalized?: boolean;
 }
 
 interface AppState {
@@ -84,6 +94,7 @@ interface AppState {
   users: User[]; // List of staff members
   settings: {
     showRevenueOnDashboard: boolean;
+    allowBackdateOverride: boolean;
   };
 
   login: (phone: string) => void;
@@ -101,11 +112,14 @@ interface AppState {
   deleteBooking: (id: string) => void;
   cancelBooking: (id: string) => void;
   returnBooking: (id: string) => void;
+  markBookingAsTaken: (id: string) => void;
+  updatePaymentStatus: (id: string, status: 'Paid' | 'Partial' | 'Unpaid') => void;
 
   addUser: (user: User) => void;
   removeUser: (id: string) => void;
 
   toggleRevenueVisibility: () => void;
+  toggleBackdateOverride: () => void;
 }
 
 // Seed Data
@@ -205,7 +219,8 @@ export const useStore = create<AppState>()(
       bookings: MOCK_BOOKINGS,
       users: MOCK_USERS,
       settings: {
-        showRevenueOnDashboard: true
+        showRevenueOnDashboard: true,
+        allowBackdateOverride: false
       },
 
       login: (phone) => {
@@ -254,9 +269,9 @@ export const useStore = create<AppState>()(
       })),
       returnBooking: (id) => set((state) => {
         const booking = state.bookings.find(b => b.id === id);
+        const user = state.user;
         if (!booking) return {};
 
-        // Free up bikes
         const newBikes = state.bikes.map(bike => {
           if (booking.bikeIds.includes(bike.id)) {
             return { ...bike, status: 'Available' };
@@ -264,9 +279,48 @@ export const useStore = create<AppState>()(
           return bike;
         });
 
+        const existingHistory = Array.isArray(booking.history) ? booking.history : [];
         return {
-          bookings: state.bookings.map((b) => (b.id === id ? { ...b, status: 'Completed', returnedAt: new Date().toISOString() } : b)),
+          bookings: state.bookings.map((b) => (b.id === id ? { 
+            ...b, 
+            status: 'Completed', 
+            returnedAt: new Date().toISOString(),
+            returnedBy: user?.id,
+            finalized: true,
+            history: [...existingHistory, { byUserId: user?.id || 'unknown', timestamp: new Date().toISOString(), changes: 'Marked as Returned' }]
+          } : b)),
           bikes: newBikes as Bike[]
+        };
+      }),
+
+      markBookingAsTaken: (id) => set((state) => {
+        const user = state.user;
+        const booking = state.bookings.find(b => b.id === id);
+        const existingHistory = booking && Array.isArray(booking.history) ? booking.history : [];
+        return {
+          bookings: state.bookings.map((b) => (b.id === id ? { 
+            ...b, 
+            status: 'Active', 
+            takenAt: new Date().toISOString(),
+            takenBy: user?.id,
+            history: [...existingHistory, { byUserId: user?.id || 'unknown', timestamp: new Date().toISOString(), changes: 'Marked as Taken' }]
+          } : b))
+        };
+      }),
+
+      updatePaymentStatus: (id, status) => set((state) => {
+        const user = state.user;
+        const now = new Date().toISOString();
+        const booking = state.bookings.find(b => b.id === id);
+        const existingHistory = booking && Array.isArray(booking.history) ? booking.history : [];
+        return {
+          bookings: state.bookings.map((b) => (b.id === id ? { 
+            ...b, 
+            paymentStatus: status,
+            paidAt: status === 'Paid' ? now : b.paidAt,
+            paidBy: status === 'Paid' ? user?.id : b.paidBy,
+            history: [...existingHistory, { byUserId: user?.id || 'unknown', timestamp: now, changes: `Payment status changed to ${status}` }]
+          } : b))
         };
       }),
 
@@ -275,6 +329,10 @@ export const useStore = create<AppState>()(
 
       toggleRevenueVisibility: () => set((state) => ({
         settings: { ...state.settings, showRevenueOnDashboard: !state.settings.showRevenueOnDashboard }
+      })),
+
+      toggleBackdateOverride: () => set((state) => ({
+        settings: { ...state.settings, allowBackdateOverride: !state.settings.allowBackdateOverride }
       })),
     }),
     {
