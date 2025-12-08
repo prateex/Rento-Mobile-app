@@ -1,0 +1,125 @@
+PROJECT: Rewrite Inventory Calendar (FREE tools) — Single column per day + slanted start/end visuals
+
+Goal
+Rewrite the app’s inventory calendar using only free libraries and custom code (no FullCalendar Scheduler or paid plugins). The calendar must show inventory availability per day (one column per day), allow quick drill-down of bookings for a selected day, and visually indicate where each booking starts/ends with slanted start/end caps so users can tell partial-day bookings at a glance. It must be mobile-first, performant, and integrate with existing bookings/bikes data.
+
+Tech stack / allowed libs
+- React (existing project stack)
+- date-fns for date calculations
+- tailwindcss / plain CSS modules for styling
+- react-virtualized or simple windowing (optional) for long lists (free)
+- optional: tiny SVG/Canvas for slanted edges (no paid dependency)
+- Do NOT use fullcalendar scheduler or other paid calendar libraries
+
+Data model assumptions (input)
+- bikes: [{ id, name, status, ... }]
+- bookings: [{
+    id,
+    bikeIds: string[],      // supports multi-bike booking
+    startTime: ISO string,  // timezone-aware ISO
+    endTime: ISO string,
+    status: 'Booked'|'Active'|'Completed'|'Cancelled'|'Deleted',
+    rent: number,
+    deposit: number,
+    totalAmount: number,
+    customerId,
+    ...
+  }]
+
+UI Requirements (visual + interaction)
+1. Layout:
+   - Horizontal grid with one column per day for the visible range (default: current month).
+   - Leftmost column: compact vertical list of bikes (fixed column), right of it the daily columns.
+   - Each row represents a bike; each day is a single vertical column cell for that day.
+   - Bookings render as horizontal bars spanning the columns between startTime and endTime across that bike’s row.
+
+2. Single-column-per-day rule:
+   - Each day appears exactly once (one column). There must NOT be multiple columns for the same date.
+   - Bookings spanning multiple days stretch across consecutive day-columns.
+
+3. Partial-day visuals:
+   - If a booking starts mid-day (e.g., 7th morning at 09:00) it should visually show a slanted left edge on the bar (like `/`) indicating it started during that day.
+   - If a booking ends mid-day (e.g., 8th morning at 10:00) it should show a slanted right edge (like `\`) to indicate an early finish.
+   - If a booking starts at 00:00 of day 7 (full-day start), the left edge is square; similarly for end at 23:59 with square right edge.
+   - Implement slanted edges using CSS clip-path or a small SVG cap attached to each bar so the edge appears slanted and sharp across devices.
+
+4. Precise fraction-of-day width:
+   - Within the day column, position the leftmost start precisely relative to the day fraction:
+     - Calculate position of the booking start within the first day as `startHour / 24` and apply left padding offset inside that day's cell for the first day segment.
+     - Similarly for the last day, reduce the ending segment width by ` (24 - endHour) / 24` so multi-day bars show accurate partial-day coverage.
+   - For middle full days (days fully covered by the booking) the bar fills entire day-columns.
+
+5. Overlap handling / stacking:
+   - If multiple bookings exist for the same bike overlapping visually on the same day window, stack them vertically within that bike row (max 3 visible rows, with a “+N” indicator if more).
+   - Provide a small vertical gutter to avoid visual collision.
+
+6. Interactions:
+   - Tap/click a day column header to open a modal listing all bookings for that day (with quick actions: view, edit, call, whatsapp, mark returned).
+   - Tap a booking bar to open booking detail modal (same actions).
+   - Ability to filter view by a single bike, bike group, or show all.
+   - Date range selector: month/week/day toggle (week view should show 7 columns; month shows all days of month).
+
+Implementation details / algorithm
+1. Compute visible days:
+   - Use `startOfMonth`, `endOfMonth`, or a custom `startDate`/`endDate` range (date-fns).
+   - Build an array `days = eachDayOfInterval({ start, end })`.
+
+2. Map bookings into grid segments:
+   - For each booking and each bike in booking.bikeIds:
+     - Compute `segmentStart = max( booking.startTime, startOfDay(currentDay) )`
+     - Compute `segmentEnd = min( booking.endTime, endOfDay(currentDay) )`
+     - For the first day: compute `leftOffsetPct = (hour+minuteFraction)/24 * 100`.
+     - For the last day: compute `rightTrimPct = (24 - (endHour+endMinuteFraction)/24) * 100` or compute widthPct directly.
+     - For full middle days: width = 100% of that day column.
+     - Render each booking row segment as an absolutely positioned element inside the grid cell with `left`, `width` values computed from above.
+
+3. Slanted edges:
+   - For left edge slant: apply a small SVG triangle or CSS `clip-path: polygon(...)` on the left side; rotate appropriately for right edge (`transform: scaleX(-1)` for symmetric).
+   - Ensure slant width is consistent (e.g., 8–12px) and responsive (use `em` or px with media queries).
+   - For full-day cells, do not display slant.
+
+4. Performance:
+   - Use virtualization on the bike list (if bikes > 100) to avoid DOM bloat.
+   - Throttle recalculation when resizing or navigating date ranges.
+
+5. Accessibility:
+   - Ensure keyboard focus on booking bars, include `aria-label` describing booking dates, bike name, customer.
+   - Provide color-contrast compliant palette and an accessible legend.
+
+Deliverables
+1. `components/InventoryCalendar.tsx` — Self-contained React component (TypeScript) with props:
+   - `bikes`, `bookings`, `startDate`, `endDate`, `onBookingClick`, `onDayClick`, `filters`
+2. `hooks/useCalendarSegments.ts` — Hook that converts bookings+bikes into drawable segments with `dayIndex, bikeIndex, leftPct, widthPct, isStartPartial, isEndPartial, bookingId`.
+3. `styles/calendar.css` or Tailwind classes — contains grid layout, booking bar styles and slanted-edge CSS/SVG.
+4. Examples/Storybook entry or small demo page that shows month & week views and sample data.
+5. Unit tests:
+   - `computeSegments` tests for multi-day bookings, start/end partials, single-day bookings.
+   - Overlap stacking tests to ensure stacking algorithm places events correctly.
+6. Small integration test / manual QA checklist:
+   - Add booking that starts 7th 09:00 and ends 8th 10:00 -> verify slanted left on 7th and slanted right on 8th and middle days full width.
+   - Multi-bike booking shows on correct bike rows.
+   - Clicking day shows list modal and filters bikes properly.
+   - Mobile layout fits with horizontal scroll if many days.
+
+Acceptance criteria (how to know the job is done)
+- Calendar uses only free libs and custom code.
+- Exactly one column per calendar day is rendered.
+- Multi-day bookings visually span consecutive day-columns.
+- Start/end slanted caps show whenever booking starts/ends mid-day; full-day start/end shown as square caps.
+- Partial-day widths within the day are visually accurate (approximate fractions ok to pixel rounding).
+- Clicking a day or booking opens modals with correct listings and booking details.
+- Works on mobile widths and desktop widths (responsive).
+- Performance acceptable with 200 bikes + 1000 bookings (use virtualization if needed).
+- Unit tests for segment computation pass.
+
+Notes and tips for implementer
+- Use `position: relative` on each day cell and absolutely position event bars inside that cell for precise control.
+- For slanted edges, `clip-path: polygon(8px 0, 100% 0, 100% 100%, 8px 100%, 0 50%)` can create a slanted left; mirror for right.
+- Prefer computing pixel offsets server-side only when necessary; keep client math using date-fns for consistency.
+- Provide a CSS variable `--slant-size` so designers can tweak slant width.
+
+If you need, I can:
+- generate `InventoryCalendar.tsx` starter code (React + TypeScript + tailwind) with the hook `useCalendarSegments` implemented and a demo dataset, or
+- produce the exact CSS `clip-path` and SVG snippets for the slanted caps to paste into the booking bar component.
+
+Please confirm if you want the full component code now (I will generate `InventoryCalendar.tsx`, the `useCalendarSegments` hook, and example CSS).
