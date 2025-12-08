@@ -1,0 +1,108 @@
+Project Goal:
+Build a complete **Bike Rental Management Mobile App (MVP)** as an **Expo React Native** project. Deliver production-ready code, attractive UI/UX, and clear run/build instructions. Use the color scheme **Yellow (#FFD200), White (#FFFFFF), Black (#000000)** with tasteful accents/shadows. App is for rental shop owners and staff to manage bikes, customers (KYC), bookings, payments, and rental history.
+
+High-level requirements:
+- Platform: Expo (React Native) with TypeScript.
+- Architecture: Modular, component-driven, clean folder structure (screens/, components/, services/, store/ or context/, assets/, utils/).
+- Styling: Use styled-components or Tailwind-like utility (pick one and justify). Provide theme tokens for colors, spacing, radii, typography.
+- Animations: Smooth micro-interactions (button press, list item swipes, screen transitions) using Reanimated or built-in Animated.
+- Accessibility: Proper labels, large tappable targets, contrast checks.
+- Responsiveness: Support typical mobile sizes (360–430 width).
+- Offline-first: basic local cache for data (AsyncStorage).
+- Backend: Provide two options:
+  1. **Firebase** (preferred): Auth (Phone OTP), Firestore DB rules, Storage for images.
+  2. **Node + SQLite**: A minimal Express server that runs in Replit for quick testing with SQLite or lowdb. Provide endpoints and sample seed script.
+- Testing: Basic unit tests for critical components and at least one E2E test using Detox or Jest + React Native Testing Library.
+- CI: Provide a simple GitHub Actions workflow file that runs tests and lints on push.
+- README: Clear steps to run locally, run the API (if Node server included), and Expo instructions to build APK/ipa (link to Expo EAS commands).
+
+User roles & auth:
+- Shop Admin (owner) — full access.
+- Staff — limited access (no shop settings).
+- Auth method: Phone + OTP (if using Firebase) or simple email/password for the Node option.
+- Provide a seeded Admin account for testing.
+
+MVP Features (screens & flows) — implement all of these:
+1. Onboarding / Splash
+2. Login (Phone OTP) & Role-based Signup
+3. Dashboard (Admin):
+   - Summary cards: total bikes, available, booked, revenue (today/this month)
+   - Quick actions: Add Bike, Create Booking, Scan KYC
+4. Bikes Screen:
+   - List with search, filters (Available, Booked, Maintenance)
+   - Bike detail page with images, docs, price, status, edit/delete
+   - Add/Edit bike screen (photos, docs upload, fields: name, regNo, modelYear, fuelType, pricePerDay, status)
+5. Customers Screen:
+   - Add customer with KYC uploads (Aadhaar/ID front+back, Driving License)
+   - Search by phone, view history
+6. Bookings Screen:
+   - Create booking flow: select bike, select customer (or add new), start/end datetime, auto-calc total
+   - Booking detail with status (Booked → Active → Completed), before/after photos, payment recording
+   - Overlap check to prevent double booking
+7. Payments:
+   - Record payment (Cash, UPI), view payment history, mark as paid/partial
+8. Notifications:
+   - Local push notifications for rental starting today and overdue rentals (use Expo Notifications or local schedule)
+9. Staff Management:
+   - Add staff, assign role, staff login sees limited screens
+10. Settings:
+    - Shop details, pricing rules, terms, backup/export data as CSV
+11. Rental History & Reports:
+    - List completed rentals with filters (date, bike, customer)
+12. Photo uploads:
+    - Use Firebase Storage or local filesystem + upload endpoints
+13. Sample Data:
+    - Seed script to create sample bikes, users, customers, bookings, payments.
+
+UI/UX details & style:
+- Color tokens:
+  - primary: #FFD200 (Yellow)
+  - background: #FFFFFF (White)
+  - text: #000000 (Black)
+  - muted: #666666
+  - success: #2ECC71
+  - danger: #E74C3C
+- Typography: Large readable headings, 16px body, 18–20px primary buttons.
+- Buttons: Rounded 12–16px radius, large tap targets, primary button = black background with yellow text or yellow filled with black text — provide two variants.
+- Card design: subtle shadow, white cards on light background, black text, yellow accent strips/icons.
+- Icons: Use vector icons (React Native Vector Icons or Expo’s vector icons).
+- Provide component library (Button, Input, Modal, Select, DateTimePicker, PhotoUploader, ConfirmDialog, Badge, Card, EmptyState).
+- Provide dark mode optional toggle (not required but include tokens to support future dark mode).
+
+Developer deliverables:
+1. Full Expo project in TypeScript, ready to run (`expo start`).
+2. Well-documented README with run/build steps, how to switch between Firebase / Node backend, environment variables example (.env.example).
+3. Seed data script and Postman collection or curl commands for API endpoints.
+4. Screenshots of all screens (auto-generated or add instructions to take).
+5. Exportable APK instructions (Expo EAS build commands) and Play Store notes.
+6. Linting (ESLint + Prettier) and basic GitHub Actions for PR checks.
+7. A sample production-ready `app.json` / `app.config.js` with app name, slug, icon placeholders.
+8. Accessibility checklist and a short QA checklist.
+
+Acceptance criteria (how to know the job is done):
+- App runs in Expo Go and displays all major screens.
+- Can create a bike, create a customer, make a booking, mark payment, and complete rental.
+- Role-based auth works (Admin vs Staff).
+- Photo uploads store and are retrievable.
+- Seed data loads and populates app.
+- README shows exactly how to run everything in Replit and locally.
+- All UI matches the yellow/white/black scheme and feels modern and attractive.
+
+Extra (nice-to-have, but include if possible):
+- QR code generator for a bike (scan to view bike details / start rental).
+- Invoice PDF generation for completed rentals.
+- Basic analytics (number of bookings per day — lightweight).
+- Push notifications when booking is confirmed or rental starts.
+
+Please produce:
+1. Full project files (Expo React Native TypeScript).
+2. README with commands:
+   - `npm install`
+   - `expo start`
+   - `npm run seed`
+   - `npm run build:android` (instructions for EAS)
+3. A short developer note explaining folder structure and how to change color tokens.
+
+Make design decisions where needed — aim for fast MVP delivery with high polish. Keep code modular and well-commented. If external APIs or services are used (Firebase, Expo EAS), include exact versions and configuration steps.
+
+Generate the full codebase now and include the README and seed data. If any choice needs to be made (e.g., Firebase vs Node), prefer **Firebase** but include the Node option as a quick local server alternative.

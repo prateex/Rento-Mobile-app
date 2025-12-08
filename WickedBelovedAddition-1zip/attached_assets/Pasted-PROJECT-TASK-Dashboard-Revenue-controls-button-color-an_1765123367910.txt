@@ -1,0 +1,107 @@
+PROJECT TASK: Dashboard — Revenue controls, button color, and Inventory-style Calendar (Cloudbeds-like)
+
+Goal
+Implement the following Dashboard improvements in the rental-bikes app (web React project). Keep current yellow/white/black theme. Deliver tested code, update README if new deps are added, and include screenshots of the new Dashboard and calendar.
+
+High-level summary of changes
+1. Revenue report: add period selector (daily / weekly / monthly / custom date range) + clear charts.
+2. Change "Available Bikes" stat button color to match other action buttons (consistent styling).
+3. Replace existing small calendar UI (top-right) and the "Active Bookings" card with an inventory-style calendar (resource timeline view) like Cloudbeds: left side lists bikes (resources), right side shows bookings per bike across dates with occupancy percentage.
+4. Make the inventory calendar visible from Dashboard (not tucked small at the top-right) — show it in place of the "Active Bookings" card or as main dashboard section.
+
+Requirements & implementation details
+
+A. Libraries & tech decisions (preferred)
+- Use **FullCalendar** with the **resourceTimeline** plugin for the inventory calendar:
+  - Packages: `@fullcalendar/react`, `@fullcalendar/resource-timeline`, `@fullcalendar/daygrid`, `@fullcalendar/interaction`
+  - FullCalendar resource-timeline gives the Cloudbeds-like resource rows (rooms/bikes) + timeline bookings.
+- For charts, use **Recharts** or **Chart.js** (Recharts preferred for React).
+  - Packages: `recharts`
+- For date range picker inside revenue modal, use `react-date-range` or `react-dates` (simple date range UI).
+- Use existing styling system (Tailwind / CSS modules / your `ui` components). Keep tokens: primary yellow `#FFD200`, black `#000`, white `#FFF`.
+- Use lazy-loading for the calendar component (React.lazy + Suspense) to reduce initial bundle size.
+
+B. Details: Revenue button & report
+- Make the existing Revenue card clickable (already exists). When clicked, open a modal `RevenueReport`.
+- Inside revenue modal:
+  - Top: segmented control or tabs for `Daily | Weekly | Monthly | Custom range`.
+  - If `Custom range` selected show start/end date pickers.
+  - Chart area: render an appropriate chart depending on the selection:
+    - Daily: line chart (x = date, y = revenue)
+    - Weekly: bar chart (week labels)
+    - Monthly: bar or area chart (months)
+  - Below chart: a table with rows: `date | bookings | rent | deposit | total`
+  - Export CSV button (uses client-side CSV generation and triggers download)
+- Backend: call existing revenue endpoint or compute on client from bookings array (for MVP) by aggregating bookings by period. Ensure cancelled/deleted bookings excluded and deposit/rent separated.
+
+C. Change Available Bikes button color
+- Identify the component rendering the `Available Bikes` card/button and update classes so it uses the same background as other cards (white bg with border or the chosen card color).
+- Ensure text color and icon contrast meet accessibility.
+
+D. Inventory calendar (replacement of Active Bookings)
+- Remove or hide the "Active Bookings" summary card from the Dashboard and place the calendar in its position (or as a large section directly below top stats).
+- Calendar features:
+  - Left column: vertical list of bikes (resource label) including bike name, regNo, status badges, and small thumbnail.
+  - Right: timeline by day (or adjustable to week/month) showing colored blocks for each booking (start → end).
+  - Booking block: show customer name (short), booking status color (booked/active/completed/overdue), and quick tooltip on hover with full details (phone, start/end, rent, deposit).
+  - Top toolbar: controls to toggle view (Day / Week / Month), forward/back date navigation, and occupancy percentage display (per day).
+  - Day selection: click a day in the timeline header to open a modal showing all bookings that day and an **Available bikes** filtered list for that day (action: Filter bikes list by date).
+  - Resource grouping: allow grouping by model type (optional).
+- Backend / Data:
+  - FullCalendar resources: map `bikes` → `{ id: bike.id, title: bike.name + ' • ' + bike.regNo }`
+  - Events: map `bookings` → `{ id: booking.id, resourceId: bikeId, start: booking.startTime, end: booking.endTime, title: customer.name, extendedProps: {...} }`
+  - For multi-bike bookings: create one event per bike referencing same booking id.
+- Occupancy indicators: compute occupancy % per day = bookedBikesCount / totalBikes and display in the top date header or heatmap style (use CSS classes to shade header cells).
+
+E. UX & interactions
+- Clicking a booking block: open Booking Detail modal (existing Booking page/modal).
+- Drag-and-drop (optional): allow admin to drag booking blocks to reschedule; when dragged update booking start/end with overlap-validation on backend.
+- If resizing events is supported, do validation to prevent overlapping bookings for same bike.
+
+F. Performance & progressive enhancement
+- Lazy-load calendar component (React.lazy) and FullCalendar CSS.
+- If many bikes/bookings, implement pagination or virtualized rows for extreme scale (not required for MVP).
+
+Acceptance criteria (what must be true to accept)
+1. Revenue modal opens and supports Daily / Weekly / Monthly / Custom range views with chart and CSV export.
+2. Available Bikes card/button color updated to match other cards and looks consistent on mobile & desktop.
+3. Dashboard shows the inventory calendar (resource timeline) with bikes on left and bookings across dates on right — visually similar to the provided Cloudbeds screenshot.
+4. Clicking a day filters or shows which bikes are available on that day (list + counts).
+5. Clicking a booking block opens booking detail; bookings visually reflect status by color.
+6. No console errors when calendar loads; calendar lazy-loads to avoid blocking initial page render.
+7. Unit test or small smoke test to verify revenue aggregation logic and calendar data mapping (bookings → events).
+
+Files to change (suggested)
+- `client/src/pages/Dashboard.tsx` — replace Active Bookings section with `InventoryCalendar` component and wire revenue modal to `RevenueReport` component.
+- `client/src/components/InventoryCalendar/*` — new component (React.lazy) using FullCalendar resource-timeline.
+- `client/src/components/RevenueReport/*` — modal component using Recharts.
+- `client/src/lib/utils/aggregateRevenue.ts` — new helper to aggregate revenue by period.
+- `client/src/styles` or Tailwind config if adding color tokens.
+
+Dev & test steps (for Replit / PR)
+1. Add deps: `npm install @fullcalendar/react @fullcalendar/resource-timeline @fullcalendar/daygrid @fullcalendar/interaction recharts react-date-range`
+2. Implement components and wire them in Dashboard.
+3. Run dev server and open Dashboard:
+   - Verify revenue modal works and charts render when selecting Daily/Weekly/Monthly/Custom.
+   - Verify Available Bikes card color changed.
+   - Verify calendar loads, shows resources, and shows bookings mapped to events.
+   - Click several bookings/days to confirm modals and filters.
+4. Run lint and type checks: `npx tsc --noEmit` and `npm run lint` (if available).
+5. Create a short demo GIF or screenshots for the PR.
+
+Notes for the developer
+- If existing backend already computes revenue, prefer the backend endpoint. Otherwise compute on client for MVP.
+- For PDF/CSV export in revenue modal use `papaparse` or simple client-side CSV generator.
+- If FullCalendar licensing is a concern, use `react-big-scheduler` as an alternative.
+
+Deliverables
+- Updated Dashboard with Inventory calendar and Revenue modal.
+- New components (`InventoryCalendar`, `RevenueReport`) and helper functions.
+- README updated (how to run and any new env or deps).
+- 1–2 screenshots of the new calendar and the revenue modal.
+
+If you want I can also:
+- produce the exact `InventoryCalendar` React component code (FullCalendar resource-timeline mapping from bikes/bookings), or
+- produce the `RevenueReport` component with Recharts code and aggregation helper.
+
+Which component do you want the code for first: the Inventory Calendar or the Revenue Report? 
