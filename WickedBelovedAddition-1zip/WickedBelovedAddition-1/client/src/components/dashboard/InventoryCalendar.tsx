@@ -231,6 +231,7 @@ export default function InventoryCalendar({ className }: InventoryCalendarProps)
             <BikeRow
               key={bike.id}
               bike={bike}
+              bikes={bikes}
               days={days}
               bikeSegmentMap={bikeSegmentMap}
               columnWidth={columnWidth}
@@ -270,6 +271,7 @@ export default function InventoryCalendar({ className }: InventoryCalendarProps)
 
 interface BikeRowProps {
   bike: Bike;
+  bikes: Bike[];
   days: Date[];
   bikeSegmentMap: Map<string, Map<number, CalendarSegment[]>>;
   columnWidth: number;
@@ -278,7 +280,7 @@ interface BikeRowProps {
   onDayClick: (day: Date) => void;
 }
 
-function BikeRow({ bike, days, bikeSegmentMap, columnWidth, customers, onBookingClick, onDayClick }: BikeRowProps) {
+function BikeRow({ bike, bikes, days, bikeSegmentMap, columnWidth, customers, onBookingClick, onDayClick }: BikeRowProps) {
   const rowSegments = useMemo(() => {
     const allSegments: CalendarSegment[] = [];
     days.forEach((_, dayIndex) => {
@@ -340,6 +342,7 @@ function BikeRow({ bike, days, bikeSegmentMap, columnWidth, customers, onBooking
                   key={segment.id}
                   segment={segment}
                   customers={customers}
+                  bikes={bikes}
                   onClick={(e) => {
                     e.stopPropagation();
                     onBookingClick(segment.booking);
@@ -365,11 +368,13 @@ function BikeRow({ bike, days, bikeSegmentMap, columnWidth, customers, onBooking
 interface BookingBarProps {
   segment: CalendarSegment;
   customers: Customer[];
+  bikes: Bike[];
   onClick: (e: React.MouseEvent) => void;
 }
 
-function BookingBar({ segment, customers, onClick }: BookingBarProps) {
+function BookingBar({ segment, customers, bikes, onClick }: BookingBarProps) {
   const customer = customers.find((c) => c.id === segment.booking.customerId);
+  const bookingBikes = (bikes || []).filter((b) => segment.booking.bikeIds.includes(b.id));
   const statusColor = getStatusColor(segment.booking.status);
   const statusBorderColor = getStatusBorderColor(segment.booking.status);
 
@@ -408,8 +413,17 @@ function BookingBar({ segment, customers, onClick }: BookingBarProps) {
       tabIndex={0}
       aria-label={`Booking for ${customer?.name || 'Unknown'} from ${format(parseISO(segment.booking.startDate), 'MMM d')} to ${format(parseISO(segment.booking.endDate), 'MMM d')}`}
     >
-      <div className="px-1 py-0.5 text-[9px] font-medium truncate text-zinc-800 h-full flex items-center">
-        {segment.isFirstDay && customer?.name}
+      <div className="px-1 py-0.5 text-[9px] font-medium truncate text-zinc-800 h-full flex items-center gap-1">
+        {segment.isFirstDay && (
+          <>
+            <span>{customer?.name}</span>
+            {bookingBikes.length > 0 && (
+              <span className="text-zinc-500">
+                ({bookingBikes.map(b => b.regNo || b.name).join(', ')})
+              </span>
+            )}
+          </>
+        )}
       </div>
     </div>
   );
@@ -424,7 +438,12 @@ interface BookingDetailModalProps {
 }
 
 function BookingDetailModal({ open, onOpenChange, booking, customer, bikes }: BookingDetailModalProps) {
+  const { bookings, updatePaymentStatus } = useStore();
+  
   if (!booking) return null;
+  
+  const currentBooking = bookings.find(b => b.id === booking.id) || booking;
+  const paymentStatus = currentBooking.paymentStatus || 'Unpaid';
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -476,7 +495,7 @@ function BookingDetailModal({ open, onOpenChange, booking, customer, bikes }: Bo
               <div className="flex flex-wrap gap-1">
                 {bikes.map((bike) => (
                   <Badge key={bike.id} variant="outline">
-                    {bike.name}
+                    {bike.name} {bike.regNo && <span className="text-zinc-400 ml-1">({bike.regNo})</span>}
                   </Badge>
                 ))}
               </div>
@@ -497,19 +516,41 @@ function BookingDetailModal({ open, onOpenChange, booking, customer, bikes }: Bo
               </div>
             </div>
 
+            <div className="space-y-2">
+              <p className="text-xs font-medium text-muted-foreground">Payment Status</p>
+              <div className="flex gap-1">
+                {(['Unpaid', 'Partial', 'Paid'] as const).map((status) => (
+                  <Button
+                    key={status}
+                    variant={paymentStatus === status ? 'default' : 'outline'}
+                    size="sm"
+                    className={cn(
+                      'flex-1 text-xs',
+                      paymentStatus === status && status === 'Paid' && 'bg-green-600 hover:bg-green-700',
+                      paymentStatus === status && status === 'Partial' && 'bg-amber-500 hover:bg-amber-600',
+                      paymentStatus === status && status === 'Unpaid' && 'bg-red-500 hover:bg-red-600'
+                    )}
+                    onClick={() => updatePaymentStatus(currentBooking.id, status)}
+                  >
+                    {status}
+                  </Button>
+                ))}
+              </div>
+            </div>
+
             <Badge
               className={cn(
                 'w-full justify-center py-1',
-                booking.status === 'Active'
+                currentBooking.status === 'Active'
                   ? 'bg-green-100 text-green-700'
-                  : booking.status === 'Booked'
+                  : currentBooking.status === 'Booked'
                   ? 'bg-blue-100 text-blue-700'
-                  : booking.status === 'Completed'
+                  : currentBooking.status === 'Completed'
                   ? 'bg-zinc-100 text-zinc-700'
                   : 'bg-red-100 text-red-700'
               )}
             >
-              {booking.status}
+              {currentBooking.status}
             </Badge>
           </div>
         )}
@@ -568,7 +609,7 @@ function DayDetailModal({
               {availableBikes.length > 0 ? (
                 availableBikes.map((bike) => (
                   <Badge key={bike.id} variant="outline" className="bg-green-50 text-green-700 border-green-200">
-                    {bike.name}
+                    {bike.name} {bike.regNo && <span className="text-green-500">({bike.regNo})</span>}
                   </Badge>
                 ))
               ) : (
@@ -593,7 +634,9 @@ function DayDetailModal({
                       <div className="flex justify-between items-start">
                         <div>
                           <p className="font-medium text-sm">{bookingCustomer?.name}</p>
-                          <p className="text-xs text-muted-foreground">{bookingBikes[0]?.name}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {bookingBikes.map((b) => `${b.name}${b.regNo ? ` (${b.regNo})` : ''}`).join(', ')}
+                          </p>
                         </div>
                         <Badge
                           variant="outline"

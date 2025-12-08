@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Calendar as CalendarIcon, Plus, Clock, ArrowRight, IndianRupee, CheckCircle, Edit2, Trash2, UserPlus, Phone, MessageCircle, FileText, Filter, X, CornerDownLeft, Ban } from "lucide-react";
+import { Calendar as CalendarIcon, Plus, Clock, ArrowRight, IndianRupee, CheckCircle, Edit2, Trash2, UserPlus, Phone, MessageCircle, FileText, Filter, X, CornerDownLeft, Ban, Play, Send } from "lucide-react";
 import { format, addDays, subDays, setHours, setMinutes, startOfDay } from "date-fns";
 import { useForm } from "react-hook-form";
 import { useToast } from "@/hooks/use-toast";
@@ -18,7 +18,7 @@ import { Label } from "@/components/ui/label";
 import { Calendar } from "@/components/ui/calendar";
 
 export default function Bookings() {
-  const { bookings, bikes, customers, addBooking, updateBooking, deleteBooking, cancelBooking, returnBooking, user, addCustomer } = useStore();
+  const { bookings, bikes, customers, addBooking, updateBooking, deleteBooking, cancelBooking, returnBooking, markBookingAsTaken, updatePaymentStatus, user, addCustomer, settings } = useStore();
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [editingBooking, setEditingBooking] = useState<Booking | null>(null);
   const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null);
@@ -691,6 +691,14 @@ export default function Bookings() {
                             <Button variant="ghost" size="icon" className="h-6 w-6 text-zinc-400 hover:text-foreground" onClick={() => setInvoiceBooking(booking)}>
                                <FileText size={12} />
                             </Button>
+                            {booking.status === 'Booked' && (
+                               <Button variant="ghost" size="icon" className="h-6 w-6 text-green-500 hover:text-green-700" title="Mark as Taken" onClick={() => {
+                                  markBookingAsTaken(booking.id);
+                                  toast({ title: "Bike Taken", description: "Booking is now active." });
+                               }}>
+                                  <Play size={12} />
+                               </Button>
+                            )}
                             {booking.status === 'Active' && (
                                <Button variant="ghost" size="icon" className="h-6 w-6 text-blue-500 hover:text-blue-700" title="Return Bike" onClick={() => {
                                   if (confirm("Mark bike as returned and complete booking?")) {
@@ -736,13 +744,56 @@ export default function Bookings() {
                       <div className="flex items-center gap-1 text-sm font-medium">
                         <IndianRupee size={14} />
                         <span>{booking.totalAmount}</span>
-                        <span className={cn("text-[10px] px-1.5 py-0.5 rounded-full ml-2",
-                          booking.paymentStatus === 'Paid' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
-                        )}>
-                          {booking.paymentStatus}
-                        </span>
+                        <div className="flex gap-0.5 ml-2">
+                          {(['Unpaid', 'Partial', 'Paid'] as const).map((status) => (
+                            <button
+                              key={status}
+                              className={cn(
+                                "text-[9px] px-1.5 py-0.5 rounded transition-all",
+                                booking.paymentStatus === status
+                                  ? status === 'Paid' ? 'bg-green-500 text-white' 
+                                    : status === 'Partial' ? 'bg-amber-500 text-white'
+                                    : 'bg-red-500 text-white'
+                                  : 'bg-zinc-100 text-zinc-500 hover:bg-zinc-200'
+                              )}
+                              onClick={() => {
+                                updatePaymentStatus(booking.id, status);
+                                toast({ title: "Payment Updated", description: `Status changed to ${status}` });
+                              }}
+                            >
+                              {status}
+                            </button>
+                          ))}
+                        </div>
                       </div>
                       <div className="flex gap-2">
+                        {customer && booking.status !== 'Cancelled' && booking.status !== 'Completed' && (
+                           <Button 
+                             variant="outline" 
+                             size="sm" 
+                             className="h-8 text-xs text-green-600 border-green-200 hover:bg-green-50" 
+                             asChild
+                           >
+                             <a 
+                               href={`https://wa.me/91${customer.phone}?text=${encodeURIComponent(
+                                 `*Invoice for your bike rental*\n\n` +
+                                 `Customer: ${customer.name}\n` +
+                                 `Bikes: ${bookingBikes.map(b => b.name).join(', ')}\n` +
+                                 `Period: ${format(new Date(booking.startDate), 'MMM dd, HH:mm')} - ${format(new Date(booking.endDate), 'MMM dd, HH:mm')}\n\n` +
+                                 `Rent: ₹${booking.rent}\n` +
+                                 `Deposit: ₹${booking.deposit}\n` +
+                                 `*Total: ₹${booking.totalAmount}*\n\n` +
+                                 `Payment Status: ${booking.paymentStatus}\n` +
+                                 `Booking Status: ${booking.status}\n\n` +
+                                 `Thank you for choosing our service!`
+                               )}`} 
+                               target="_blank" 
+                               rel="noopener noreferrer"
+                             >
+                               <Send size={12} className="mr-1" /> Invoice
+                             </a>
+                           </Button>
+                        )}
                         {(booking.status === 'Booked' || booking.status === 'Active') && (
                             <Button variant="outline" size="sm" className="h-8 text-xs text-red-500 border-red-100 hover:bg-red-50" onClick={() => {
                                if (confirm("Cancel this booking?")) {
@@ -752,11 +803,6 @@ export default function Bookings() {
                             }}>
                                <Ban size={12} className="mr-1" /> Cancel
                             </Button>
-                        )}
-                        {booking.paymentStatus !== 'Paid' && booking.status !== 'Cancelled' && (
-                           <Button size="sm" className="h-8 text-xs" onClick={() => setSelectedBooking(booking)}>
-                             Pay Now
-                           </Button>
                         )}
                       </div>
                     </div>

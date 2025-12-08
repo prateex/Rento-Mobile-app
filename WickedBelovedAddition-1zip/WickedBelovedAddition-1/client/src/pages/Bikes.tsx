@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import MobileLayout from "@/components/layout/MobileLayout";
 import { useStore, Bike, Damage } from "@/lib/store";
 import { Button } from "@/components/ui/button";
@@ -7,21 +7,27 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, Dialog
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Search, Plus, Filter, Fuel, Calendar, UploadCloud, AlertTriangle, Gauge, X, Trash2, Edit2 } from "lucide-react";
+import { Search, Plus, Filter, Fuel, Calendar, UploadCloud, AlertTriangle, Gauge, X, Trash2, Edit2, CalendarDays } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { useToast } from "@/hooks/use-toast";
 import { useLocation } from "wouter";
 import { cn } from "@/lib/utils";
 import { Textarea } from "@/components/ui/textarea";
+import { Calendar as CalendarComponent } from "@/components/ui/calendar";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { format, parseISO, startOfDay, endOfDay, addDays, isWithinInterval } from "date-fns";
 
 export default function Bikes() {
-  const { bikes, addBike, updateBike, deleteBike, user } = useStore();
+  const { bikes, bookings, addBike, updateBike, deleteBike, user } = useStore();
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<string>("all");
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [editingBike, setEditingBike] = useState<Bike | null>(null);
   const [viewingBike, setViewingBike] = useState<Bike | null>(null);
   const [isDamageModalOpen, setIsDamageModalOpen] = useState(false);
+  const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'tomorrow' | 'custom'>('all');
+  const [customDate, setCustomDate] = useState<Date | undefined>(undefined);
+  const [isDatePickerOpen, setIsDatePickerOpen] = useState(false);
   
   const { toast } = useToast();
   const [location] = useLocation();
@@ -33,12 +39,47 @@ export default function Bikes() {
     }
   }, [location]);
 
-  const filteredBikes = bikes.filter(bike => {
-    const matchesSearch = bike.name.toLowerCase().includes(search.toLowerCase()) || 
-                          bike.regNo.toLowerCase().includes(search.toLowerCase());
-    const matchesFilter = filter === "all" || bike.status.toLowerCase() === filter.toLowerCase();
-    return matchesSearch && matchesFilter;
-  });
+  const getAvailabilityDate = () => {
+    if (dateFilter === 'today') return startOfDay(new Date());
+    if (dateFilter === 'tomorrow') return startOfDay(addDays(new Date(), 1));
+    if (dateFilter === 'custom' && customDate) return startOfDay(customDate);
+    return null;
+  };
+
+  const isBikeAvailableOnDate = useMemo(() => {
+    return (bikeId: string, date: Date | null) => {
+      if (!date) return true;
+      
+      const dayStart = startOfDay(date);
+      const dayEnd = endOfDay(date);
+      
+      const conflictingBookings = bookings.filter(booking => {
+        if (booking.status === 'Deleted' || booking.status === 'Cancelled' || booking.status === 'Completed') return false;
+        if (!booking.bikeIds.includes(bikeId)) return false;
+        
+        const bookingStart = parseISO(booking.startDate);
+        const bookingEnd = parseISO(booking.endDate);
+        
+        return bookingStart < dayEnd && bookingEnd > dayStart;
+      });
+      
+      return conflictingBookings.length === 0;
+    };
+  }, [bookings]);
+
+  const filteredBikes = useMemo(() => {
+    const availabilityDate = getAvailabilityDate();
+    
+    return bikes.filter(bike => {
+      const matchesSearch = bike.name.toLowerCase().includes(search.toLowerCase()) || 
+                            bike.regNo.toLowerCase().includes(search.toLowerCase());
+      const matchesFilter = filter === "all" || bike.status.toLowerCase() === filter.toLowerCase();
+      const matchesDateAvailability = dateFilter === 'all' || 
+        (bike.status !== 'Maintenance' && isBikeAvailableOnDate(bike.id, availabilityDate));
+      
+      return matchesSearch && matchesFilter && matchesDateAvailability;
+    });
+  }, [bikes, search, filter, dateFilter, customDate, isBikeAvailableOnDate]);
 
   const BikeForm = ({ initialData, onClose }: { initialData?: Bike, onClose: () => void }) => {
     const { register, handleSubmit, watch, setValue } = useForm<Bike>({
@@ -206,15 +247,33 @@ export default function Bikes() {
   };
 
   const DamageReportForm = ({ bikeId, onClose }: { bikeId: string, onClose: () => void }) => {
-    const { register, handleSubmit } = useForm<Damage>();
+    const { register, handleSubmit, setValue, watch } = useForm<Damage>();
+    const [damagePhotos, setDamagePhotos] = useState<string[]>([]);
+    const [damageDate, setDamageDate] = useState<Date>(new Date());
+    const [isDatePickerOpenDamage, setIsDatePickerOpenDamage] = useState(false);
+    
+    const damageTypes = ['Scratch', 'Dent', 'Crack', 'Paint Chip', 'Tire Damage', 'Mirror', 'Light', 'Other'] as const;
+    
+    const handleAddDamagePhoto = () => {
+      if (damagePhotos.length < 4) {
+        const mockPhoto = 'https://images.unsplash.com/photo-1449426468159-d96dbf08f19f?auto=format&fit=crop&q=80&w=800';
+        setDamagePhotos([...damagePhotos, mockPhoto]);
+      }
+    };
+    
+    const handleRemoveDamagePhoto = (index: number) => {
+      const newPhotos = [...damagePhotos];
+      newPhotos.splice(index, 1);
+      setDamagePhotos(newPhotos);
+    };
     
     const onSubmit = (data: any) => {
       const newDamage: Damage = {
         id: Math.random().toString(36).substr(2, 9),
         type: data.type || 'Other',
         severity: data.severity,
-        date: new Date().toISOString(),
-        photoUrls: ['https://images.unsplash.com/photo-1449426468159-d96dbf08f19f?auto=format&fit=crop&q=80&w=800'],
+        date: damageDate.toISOString(),
+        photoUrls: damagePhotos.length > 0 ? damagePhotos : ['https://images.unsplash.com/photo-1449426468159-d96dbf08f19f?auto=format&fit=crop&q=80&w=800'],
         notes: data.notes,
         addedBy: user?.id || 'unknown',
         addedAt: new Date().toISOString()
@@ -230,25 +289,98 @@ export default function Bikes() {
 
     return (
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-4 pt-4">
-        <div className="space-y-2">
-          <label className="text-sm font-medium">Severity</label>
-           <select {...register("severity")} className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 [&>span]:line-clamp-1">
-             <option value="minor">Minor (Scratches, Dents)</option>
-             <option value="major">Major (Engine, Structural)</option>
-           </select>
+        <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Damage Type</label>
+            <select 
+              {...register("type", { required: true })} 
+              className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+            >
+              {damageTypes.map((type) => (
+                <option key={type} value={type}>{type}</option>
+              ))}
+            </select>
+          </div>
+          
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Severity</label>
+            <select 
+              {...register("severity", { required: true })} 
+              className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+            >
+              <option value="minor">Minor</option>
+              <option value="moderate">Moderate</option>
+              <option value="major">Major</option>
+            </select>
+          </div>
         </div>
+        
+        <div className="space-y-2">
+          <label className="text-sm font-medium">Date of Damage</label>
+          <Popover open={isDatePickerOpenDamage} onOpenChange={setIsDatePickerOpenDamage}>
+            <PopoverTrigger asChild>
+              <Button
+                variant="outline"
+                className="w-full justify-start text-left font-normal h-10"
+              >
+                <CalendarDays size={14} className="mr-2" />
+                {format(damageDate, 'PPP')}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-auto p-0" align="start">
+              <CalendarComponent
+                mode="single"
+                selected={damageDate}
+                onSelect={(date) => {
+                  if (date) setDamageDate(date);
+                  setIsDatePickerOpenDamage(false);
+                }}
+                disabled={{ after: new Date() }}
+                initialFocus
+              />
+            </PopoverContent>
+          </Popover>
+        </div>
+        
+        <div className="space-y-2">
+          <label className="text-sm font-medium">Photos (Max 4)</label>
+          <div className="flex gap-2 flex-wrap">
+            {damagePhotos.map((url, i) => (
+              <div key={i} className="relative h-16 w-16 flex-shrink-0 rounded-md overflow-hidden group">
+                <img src={url} className="h-full w-full object-cover" />
+                <button 
+                  type="button" 
+                  onClick={() => handleRemoveDamagePhoto(i)} 
+                  className="absolute top-0.5 right-0.5 bg-black/50 text-white rounded-full p-0.5"
+                >
+                  <X size={10} />
+                </button>
+              </div>
+            ))}
+            {damagePhotos.length < 4 && (
+              <div 
+                onClick={handleAddDamagePhoto} 
+                className="h-16 w-16 flex-shrink-0 border border-dashed border-zinc-300 rounded-md flex flex-col items-center justify-center gap-0.5 cursor-pointer hover:bg-zinc-50"
+              >
+                <UploadCloud size={16} className="text-muted-foreground" />
+                <span className="text-[9px] text-muted-foreground">Add</span>
+              </div>
+            )}
+          </div>
+        </div>
+        
         <div className="space-y-2">
           <label className="text-sm font-medium">Notes</label>
-          <Textarea {...register("notes", { required: true })} placeholder="Describe the damage..." />
+          <Textarea 
+            {...register("notes")} 
+            placeholder="Describe the damage location and details..." 
+            className="min-h-[80px]"
+          />
         </div>
-        <div className="space-y-2">
-           <label className="text-sm font-medium">Photo</label>
-           <div className="h-24 border border-dashed border-zinc-300 rounded-md flex flex-col items-center justify-center gap-1 cursor-pointer hover:bg-zinc-50">
-              <UploadCloud size={20} className="text-muted-foreground" />
-              <span className="text-xs text-muted-foreground">Upload Damage Photo</span>
-           </div>
-        </div>
-        <Button type="submit" variant="destructive" className="w-full h-12 mt-4">Report Damage</Button>
+        
+        <Button type="submit" variant="destructive" className="w-full h-12 mt-4">
+          <AlertTriangle size={16} className="mr-2" /> Report Damage
+        </Button>
       </form>
     );
   };
@@ -382,30 +514,101 @@ export default function Bikes() {
         </div>
 
         {/* Search & Filter */}
-        <div className="flex gap-2">
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground" size={16} />
-            <Input 
-              placeholder="Search bikes..." 
-              className="pl-9 bg-zinc-50 border-zinc-200"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
+        <div className="space-y-3">
+          <div className="flex gap-2">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground" size={16} />
+              <Input 
+                placeholder="Search bikes..." 
+                className="pl-9 bg-zinc-50 border-zinc-200"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
+            </div>
+            <Select value={filter} onValueChange={setFilter}>
+              <SelectTrigger className="w-[110px] bg-zinc-50 border-zinc-200">
+                <div className="flex items-center gap-2">
+                  <Filter size={14} />
+                  <span className="truncate">{filter === 'all' ? 'All' : filter}</span>
+                </div>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Status</SelectItem>
+                <SelectItem value="Available">Available</SelectItem>
+                <SelectItem value="Booked">Booked</SelectItem>
+                <SelectItem value="Maintenance">Maintenance</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
-          <Select value={filter} onValueChange={setFilter}>
-            <SelectTrigger className="w-[110px] bg-zinc-50 border-zinc-200">
-              <div className="flex items-center gap-2">
-                <Filter size={14} />
-                <span className="truncate">{filter === 'all' ? 'All' : filter}</span>
-              </div>
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Status</SelectItem>
-              <SelectItem value="Available">Available</SelectItem>
-              <SelectItem value="Booked">Booked</SelectItem>
-              <SelectItem value="Maintenance">Maintenance</SelectItem>
-            </SelectContent>
-          </Select>
+          
+          {/* Quick Date Filters */}
+          <div className="flex gap-1.5">
+            <Button
+              variant={dateFilter === 'all' ? 'default' : 'outline'}
+              size="sm"
+              className="h-7 text-xs flex-1"
+              onClick={() => { setDateFilter('all'); setCustomDate(undefined); }}
+            >
+              All Dates
+            </Button>
+            <Button
+              variant={dateFilter === 'today' ? 'default' : 'outline'}
+              size="sm"
+              className="h-7 text-xs flex-1"
+              onClick={() => { setDateFilter('today'); setCustomDate(undefined); }}
+            >
+              Today
+            </Button>
+            <Button
+              variant={dateFilter === 'tomorrow' ? 'default' : 'outline'}
+              size="sm"
+              className="h-7 text-xs flex-1"
+              onClick={() => { setDateFilter('tomorrow'); setCustomDate(undefined); }}
+            >
+              Tomorrow
+            </Button>
+            <Popover open={isDatePickerOpen} onOpenChange={setIsDatePickerOpen}>
+              <PopoverTrigger asChild>
+                <Button
+                  variant={dateFilter === 'custom' ? 'default' : 'outline'}
+                  size="sm"
+                  className="h-7 text-xs flex-1"
+                >
+                  <CalendarDays size={12} className="mr-1" />
+                  {dateFilter === 'custom' && customDate ? format(customDate, 'MMM dd') : 'Date'}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-0" align="end">
+                <CalendarComponent
+                  mode="single"
+                  selected={customDate}
+                  onSelect={(date) => {
+                    setCustomDate(date);
+                    setDateFilter('custom');
+                    setIsDatePickerOpen(false);
+                  }}
+                  initialFocus
+                />
+              </PopoverContent>
+            </Popover>
+          </div>
+          
+          {dateFilter !== 'all' && (
+            <div className="text-xs text-muted-foreground flex items-center gap-1">
+              <span>Showing {filteredBikes.length} bikes available on</span>
+              <span className="font-medium text-foreground">
+                {dateFilter === 'today' ? 'Today' : 
+                 dateFilter === 'tomorrow' ? 'Tomorrow' : 
+                 customDate ? format(customDate, 'MMM dd, yyyy') : ''}
+              </span>
+              <button 
+                className="ml-1 text-primary underline" 
+                onClick={() => { setDateFilter('all'); setCustomDate(undefined); }}
+              >
+                Clear
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Bike List */}
