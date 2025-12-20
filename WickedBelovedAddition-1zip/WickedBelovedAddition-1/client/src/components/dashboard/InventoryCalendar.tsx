@@ -1,5 +1,7 @@
 import { useState, useMemo, useCallback, useRef, useEffect } from 'react';
+import { useLocation } from 'wouter';
 import { useStore, Bike, Booking, Customer } from '@/lib/store';
+import { getBlockedDatesFromStorage } from '@/lib/utils';
 import {
   format,
   parseISO,
@@ -20,7 +22,7 @@ import {
   isWithinInterval,
   isToday,
 } from 'date-fns';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -37,41 +39,47 @@ const SLANT_SIZE = 8;
 const BAR_HEIGHT = 20;
 const MAX_VISIBLE_STACKS = 3;
 
+// Per-vehicle blocking storage helpers
+const BLOCK_KEY = 'rento_blocked_vehicle_days';
+function getBlockedDaysMap(): Record<string, string[]> {
+  try {
+    const raw = localStorage.getItem(BLOCK_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+function setBlockedDaysMap(map: Record<string, string[]>) {
+  localStorage.setItem(BLOCK_KEY, JSON.stringify(map));
+}
+function isBikeBlockedOnDate(bikeId: string, date: Date): boolean {
+  const map = getBlockedDaysMap();
+  const key = date.toISOString().slice(0,10);
+  const arr = map[bikeId] || [];
+  return arr.includes(key);
+}
+function toggleBikeBlockOnDate(bikeId: string, date: Date, block: boolean) {
+  const map = getBlockedDaysMap();
+  const key = date.toISOString().slice(0,10);
+  const arr = new Set(map[bikeId] || []);
+  if (block) arr.add(key); else arr.delete(key);
+  map[bikeId] = Array.from(arr);
+  setBlockedDaysMap(map);
+}
+
 export default function InventoryCalendar({ className }: InventoryCalendarProps) {
   const { bikes, bookings, customers } = useStore();
   const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null);
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [isBookingModalOpen, setIsBookingModalOpen] = useState(false);
   const [isDayModalOpen, setIsDayModalOpen] = useState(false);
+  const [blockModalOpen, setBlockModalOpen] = useState(false);
+  const [blockingBike, setBlockingBike] = useState<{ bike: Bike; date: Date; isBlocked: boolean } | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>('week');
   const [currentDate, setCurrentDate] = useState(new Date());
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
-  const days = useMemo(() => {
-    switch (viewMode) {
-      case 'month':
-        return eachDayOfInterval({
-          start: startOfMonth(currentDate),
-          end: endOfMonth(currentDate),
-        });
-      case 'week':
-        return eachDayOfInterval({
-          start: startOfWeek(currentDate, { weekStartsOn: 1 }),
-          end: endOfWeek(currentDate, { weekStartsOn: 1 }),
-        });
-      case 'day':
-        return [startOfDay(currentDate)];
-      default:
-        return [];
-    }
-  }, [viewMode, currentDate]);
-
-  const { bikeSegmentMap } = useCalendarSegments({
-    bikes,
-    bookings,
-    days,
-  });
-
+  // Define navigation functions BEFORE useEffect to avoid "before initialization" error
   const navigatePrev = useCallback(() => {
     switch (viewMode) {
       case 'month':
@@ -100,6 +108,53 @@ export default function InventoryCalendar({ className }: InventoryCalendarProps)
     }
   }, [viewMode]);
 
+  useEffect(() => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+
+    const handleWheel = (e: WheelEvent) => {
+      // Only respond to horizontal scroll or shift+scroll
+      if (Math.abs(e.deltaX) < Math.abs(e.deltaY) && !e.shiftKey) return;
+      
+      e.preventDefault();
+      const delta = e.deltaX || e.deltaY;
+      
+      if (delta > 0) {
+        navigateNext();
+      } else {
+        navigatePrev();
+      }
+    };
+
+    container.addEventListener('wheel', handleWheel, { passive: false });
+    return () => container.removeEventListener('wheel', handleWheel);
+  }, [navigatePrev, navigateNext]);
+
+  const days = useMemo(() => {
+    switch (viewMode) {
+      case 'month':
+        return eachDayOfInterval({
+          start: startOfMonth(currentDate),
+          end: endOfMonth(currentDate),
+        });
+      case 'week':
+        return eachDayOfInterval({
+          start: startOfWeek(currentDate, { weekStartsOn: 1 }),
+          end: endOfWeek(currentDate, { weekStartsOn: 1 }),
+        });
+      case 'day':
+        return [startOfDay(currentDate)];
+      default:
+        return [];
+    }
+  }, [viewMode, currentDate]);
+
+  const { bikeSegmentMap } = useCalendarSegments({
+    bikes,
+    bookings,
+    days,
+  });
+
   const goToToday = useCallback(() => {
     setCurrentDate(new Date());
   }, []);
@@ -126,8 +181,8 @@ export default function InventoryCalendar({ className }: InventoryCalendarProps)
   const getAvailableBikesForDate = useCallback(
     (date: Date) => {
       const dayBookings = getBookingsForDate(date);
-      const bookedBikeIds = dayBookings.flatMap((b) => b.bikeIds);
-      return bikes.filter((b) => !bookedBikeIds.includes(b.id) && b.status !== 'Maintenance');
+      const bookedBikeIds = new Set(dayBookings.flatMap((b) => b.bikeIds));
+      return bikes.filter((b) => !bookedBikeIds.has(b.id) && b.status !== 'Maintenance' && !isBikeBlockedOnDate(b.id, date));
     },
     [bikes, getBookingsForDate]
   );
@@ -159,8 +214,21 @@ export default function InventoryCalendar({ className }: InventoryCalendarProps)
   const selectedBookingBikes = selectedBooking ? bikes.filter((b) => selectedBooking.bikeIds.includes(b.id)) : [];
   const availableBikesOnSelectedDate = selectedDate ? getAvailableBikesForDate(selectedDate) : [];
   const bookingsOnSelectedDate = selectedDate ? getBookingsForDate(selectedDate) : [];
+  const blockedDatesSet = useMemo(() => new Set(getBlockedDatesFromStorage()), []);
 
   const columnWidth = viewMode === 'month' ? 40 : viewMode === 'week' ? 80 : 200;
+
+  // compute footer availability stats
+  const avgAvailable = useMemo(() => {
+    if (days.length === 0) return bikes.length;
+    const total = days.reduce((sum, d) => sum + getAvailableBikesForDate(d).length, 0);
+    return Math.round(total / days.length);
+  }, [days, bikes, getAvailableBikesForDate]);
+
+  const bookingPercentage = useMemo(() => {
+    if (bikes.length === 0) return 0;
+    return Math.round(((bikes.length - avgAvailable) / bikes.length) * 100);
+  }, [bikes.length, avgAvailable]);
 
   return (
     <div className={cn('bg-white rounded-lg border border-zinc-200 overflow-hidden', className)}>
@@ -174,7 +242,7 @@ export default function InventoryCalendar({ className }: InventoryCalendarProps)
             <Button variant="ghost" size="sm" className="h-7 px-2" onClick={navigatePrev}>
               <ChevronLeft className="h-4 w-4" />
             </Button>
-            <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={goToToday}>
+            <Button variant="outline" size="sm" className="h-7 px-2 text-xs border-primary" onClick={() => { goToToday(); setTimeout(() => scrollContainerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 0); }}>
               Today
             </Button>
             <Button variant="ghost" size="sm" className="h-7 px-2" onClick={navigateNext}>
@@ -211,7 +279,7 @@ export default function InventoryCalendar({ className }: InventoryCalendarProps)
               <div
                 key={index}
                 className={cn(
-                  'flex-shrink-0 p-2 text-center border-r border-zinc-100 cursor-pointer hover:bg-zinc-50 transition-colors',
+                  'flex-shrink-0 p-2 text-center border-r border-zinc-100 cursor-pointer hover:bg-zinc-50 transition-colors relative',
                   isToday(day) && 'bg-primary/10'
                 )}
                 style={{ width: columnWidth }}
@@ -238,12 +306,51 @@ export default function InventoryCalendar({ className }: InventoryCalendarProps)
               customers={customers}
               onBookingClick={handleBookingClick}
               onDayClick={handleDayClick}
+              onBlockClick={(bike, date, isBlocked) => {
+                setBlockingBike({ bike, date, isBlocked });
+                setBlockModalOpen(true);
+              }}
             />
           ))}
         </div>
       </div>
 
-      <BookingDetailModal
+        {/* Per-day summary section below calendar */}
+        <div className="border-t border-zinc-100 bg-zinc-50 p-3 overflow-x-auto">
+          <div className="flex gap-2 min-w-max">
+            {days.map((day, index) => {
+              const bookedCount = Array.from(new Set((Array.from(bikeSegmentMap.values()).flatMap(m => (m.get(index) || []).map(s => s.bikeId))))).length;
+              const percentage = bikes.length === 0 ? 0 : Math.round((bookedCount / bikes.length) * 100);
+              return (
+                <div key={index} className="flex flex-col gap-1 p-2 bg-white rounded border border-zinc-200 min-w-[120px]">
+                  <div className="text-[10px] text-muted-foreground font-medium">{format(day, 'MMM dd')}</div>
+                  <div className="text-xs">
+                    <div>Tot: {bikes.length}</div>
+                    <div>Booked: {bookedCount}</div>
+                    <div>{percentage}%</div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        <BlockVehicleModal
+        open={blockModalOpen}
+        onOpenChange={setBlockModalOpen}
+        bike={blockingBike?.bike || null}
+        date={blockingBike?.date || null}
+        isBlocked={blockingBike?.isBlocked || false}
+        onConfirm={(block) => {
+          if (blockingBike) {
+            toggleBikeBlockOnDate(blockingBike.bike.id, blockingBike.date, block);
+            setBlockModalOpen(false);
+            setBlockingBike(null);
+          }
+        }}
+      />
+
+        <BookingDetailModal
         open={isBookingModalOpen}
         onOpenChange={setIsBookingModalOpen}
         booking={selectedBooking}
@@ -278,9 +385,10 @@ interface BikeRowProps {
   customers: Customer[];
   onBookingClick: (booking: Booking) => void;
   onDayClick: (day: Date) => void;
+  onBlockClick?: (bike: Bike, date: Date, isBlocked: boolean) => void;
 }
 
-function BikeRow({ bike, bikes, days, bikeSegmentMap, columnWidth, customers, onBookingClick, onDayClick }: BikeRowProps) {
+function BikeRow({ bike, bikes, days, bikeSegmentMap, columnWidth, customers, onBookingClick, onDayClick, onBlockClick }: BikeRowProps) {
   const rowSegments = useMemo(() => {
     const allSegments: CalendarSegment[] = [];
     days.forEach((_, dayIndex) => {
@@ -305,19 +413,7 @@ function BikeRow({ bike, bikes, days, bikeSegmentMap, columnWidth, customers, on
           </div>
           <div className="min-w-0">
             <p className="text-xs font-medium truncate">{bike.name}</p>
-            <Badge
-              variant="outline"
-              className={cn(
-                'text-[9px] px-1 py-0',
-                bike.status === 'Available'
-                  ? 'bg-green-50 text-green-700 border-green-200'
-                  : bike.status === 'Booked'
-                  ? 'bg-blue-50 text-blue-700 border-blue-200'
-                  : 'bg-amber-50 text-amber-700 border-amber-200'
-              )}
-            >
-              {bike.status}
-            </Badge>
+            <p className="text-[10px] text-muted-foreground truncate">{bike.regNo || 'N/A'}</p>
           </div>
         </div>
       </div>
@@ -325,8 +421,7 @@ function BikeRow({ bike, bikes, days, bikeSegmentMap, columnWidth, customers, on
       <div className="flex relative" style={{ height: rowHeight }}>
         {days.map((day, dayIndex) => {
           const daySegments = getSegmentsForBikeDay(bikeSegmentMap, bike.id, dayIndex);
-          const hiddenCount = Math.max(0, daySegments.length - MAX_VISIBLE_STACKS);
-
+          const isBlocked = isBikeBlockedOnDate(bike.id, day);
           return (
             <div
               key={dayIndex}
@@ -335,28 +430,75 @@ function BikeRow({ bike, bikes, days, bikeSegmentMap, columnWidth, customers, on
                 isToday(day) && 'bg-primary/5'
               )}
               style={{ width: columnWidth }}
-              onClick={() => onDayClick(day)}
+              onClick={() => {
+                if (daySegments.length === 0) {
+                  onBlockClick?.(bike, day, isBlocked);
+                } else {
+                  onDayClick(day);
+                }
+              }}
             >
-              {daySegments.slice(0, MAX_VISIBLE_STACKS).map((segment) => (
-                <BookingBar
-                  key={segment.id}
-                  segment={segment}
-                  customers={customers}
-                  bikes={bikes}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onBookingClick(segment.booking);
-                  }}
-                />
-              ))}
-              {hiddenCount > 0 && (
-                <div
-                  className="absolute bottom-1 right-1 text-[9px] bg-zinc-200 text-zinc-600 px-1 rounded"
-                  style={{ zIndex: 5 }}
-                >
-                  +{hiddenCount}
+              {isBlocked && (
+                <div className="absolute inset-1 bg-red-50 border border-red-200 rounded flex items-center justify-center">
+                  <span className="text-[10px] font-medium text-red-700">Blocked</span>
                 </div>
               )}
+            </div>
+          );
+        })}
+
+        {/* Continuous booking bars spanning multiple days */}
+        {Array.from(
+          rowSegments.reduce((map, seg) => {
+            const list = map.get(seg.bookingId) || [];
+            list.push(seg);
+            map.set(seg.bookingId, list);
+            return map;
+          }, new Map<string, CalendarSegment[]>())
+        ).map(([bookingId, segs]) => {
+          const ordered = segs.sort((a, b) => a.dayIndex - b.dayIndex);
+          const first = ordered[0];
+          const last = ordered[ordered.length - 1];
+          const firstLeftPx = first.dayIndex * columnWidth + (first.leftPct / 100) * columnWidth;
+          const middleDays = Math.max(0, last.dayIndex - first.dayIndex - 1);
+          const widthPx = first.dayIndex === last.dayIndex
+            ? (first.widthPct / 100) * columnWidth
+            : (1 - first.leftPct / 100) * columnWidth + middleDays * columnWidth + (last.widthPct / 100) * columnWidth;
+
+          const top = 4 + first.stackIndex * (BAR_HEIGHT + 4);
+          const customer = customers.find((c) => c.id === first.booking.customerId);
+          const bookingBikes = (bikes || []).filter((b) => first.booking.bikeIds.includes(b.id));
+          const statusColor = getStatusColor(first.booking.status);
+          const statusBorderColor = getStatusBorderColor(first.booking.status);
+
+          return (
+            <div
+              key={`bar-${bookingId}-${bike.id}`}
+              className="absolute cursor-pointer transition-all hover:brightness-95 hover:z-10"
+              style={{
+                left: firstLeftPx,
+                width: widthPx,
+                top,
+                height: BAR_HEIGHT,
+                backgroundColor: statusColor,
+                borderLeft: !first.isStartPartial ? `2px solid ${statusBorderColor}` : undefined,
+                borderRight: !last.isEndPartial ? `2px solid ${statusBorderColor}` : undefined,
+                borderTop: `1px solid ${statusBorderColor}`,
+                borderBottom: `1px solid ${statusBorderColor}`,
+                clipPath: `polygon(${SLANT_SIZE}px 0, 100% 0, calc(100% - ${SLANT_SIZE}px) 100%, 0 100%)`,
+                zIndex: first.stackIndex + 1,
+              }}
+              onClick={(e) => {
+                e.stopPropagation();
+                onBookingClick(first.booking);
+              }}
+            >
+              <div className="px-1 py-0.5 text-[9px] font-medium truncate text-zinc-800 h-full flex items-center gap-2">
+                <span className="truncate">{customer?.name}</span>
+                {bookingBikes.length > 0 && (
+                  <span className="text-[10px] text-zinc-700 ml-1 truncate">{bookingBikes.map(b => b.regNo || b.name).join(', ')}</span>
+                )}
+              </div>
             </div>
           );
         })}
@@ -380,15 +522,9 @@ function BookingBar({ segment, customers, bikes, onClick }: BookingBarProps) {
 
   const clipPath = useMemo(() => {
     const slant = SLANT_SIZE;
-    if (segment.isStartPartial && segment.isEndPartial) {
-      return `polygon(${slant}px 0, calc(100% - ${slant}px) 0, 100% 50%, calc(100% - ${slant}px) 100%, ${slant}px 100%, 0 50%)`;
-    } else if (segment.isStartPartial) {
-      return `polygon(${slant}px 0, 100% 0, 100% 100%, ${slant}px 100%, 0 50%)`;
-    } else if (segment.isEndPartial) {
-      return `polygon(0 0, calc(100% - ${slant}px) 0, 100% 50%, calc(100% - ${slant}px) 100%, 0 100%)`;
-    }
-    return undefined;
-  }, [segment.isStartPartial, segment.isEndPartial]);
+    // Forward-slanting parallelogram for all segments
+    return `polygon(${slant}px 0, 100% 0, calc(100% - ${slant}px) 100%, 0 100%)`;
+  }, []);
 
   const top = 4 + segment.stackIndex * (BAR_HEIGHT + 4);
 
@@ -413,19 +549,63 @@ function BookingBar({ segment, customers, bikes, onClick }: BookingBarProps) {
       tabIndex={0}
       aria-label={`Booking for ${customer?.name || 'Unknown'} from ${format(parseISO(segment.booking.startDate), 'MMM d')} to ${format(parseISO(segment.booking.endDate), 'MMM d')}`}
     >
-      <div className="px-1 py-0.5 text-[9px] font-medium truncate text-zinc-800 h-full flex items-center gap-1">
-        {segment.isFirstDay && (
-          <>
-            <span>{customer?.name}</span>
-            {bookingBikes.length > 0 && (
-              <span className="text-zinc-500">
-                ({bookingBikes.map(b => b.regNo || b.name).join(', ')})
-              </span>
-            )}
-          </>
+      <div className="px-1 py-0.5 text-[9px] font-medium truncate text-zinc-800 h-full flex items-center gap-2">
+        <span className="truncate">{customer?.name}</span>
+        {bookingBikes.length > 0 && (
+          <span className="text-[10px] text-zinc-700 ml-1 truncate">{bookingBikes.map(b => b.regNo || b.name).join(', ')}</span>
         )}
       </div>
     </div>
+  );
+}
+
+interface BlockVehicleModalProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  bike: Bike | null;
+  date: Date | null;
+  isBlocked: boolean;
+  onConfirm: (block: boolean) => void;
+}
+
+function BlockVehicleModal({ open, onOpenChange, bike, date, isBlocked, onConfirm }: BlockVehicleModalProps) {
+  if (!bike || !date) return null;
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>
+            {isBlocked ? 'Unblock Vehicle' : 'Block Vehicle'}
+          </DialogTitle>
+          <DialogDescription>
+            {isBlocked 
+              ? `Unblock ${bike.name} (${bike.regNo}) for ${format(date, 'MMM dd, yyyy')}?`
+              : `Block ${bike.name} (${bike.regNo}) for ${format(date, 'MMM dd, yyyy')}?`
+            }
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            {isBlocked 
+              ? 'This vehicle will be available for booking on this date.'
+              : 'This vehicle will not be available for booking on this date.'
+            }
+          </p>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          <Button 
+            onClick={() => onConfirm(!isBlocked)}
+            className={isBlocked ? 'bg-green-600 hover:bg-green-700' : 'bg-red-600 hover:bg-red-700'}
+          >
+            {isBlocked ? 'Unblock' : 'Block'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -581,15 +761,41 @@ function DayDetailModal({
   onBookingClick,
 }: DayDetailModalProps) {
   if (!date) return null;
+  const [, setLocation] = useLocation();
+  const blockedKey = 'rento_blocked_dates';
+  const getBlockedDates = () => {
+    try {
+      const raw = localStorage.getItem(blockedKey);
+      return raw ? JSON.parse(raw) as string[] : [];
+    } catch (e) {
+      return [];
+    }
+  };
+
+  const setBlockedDate = (d: Date) => {
+    const list = getBlockedDates();
+    const key = d.toISOString().slice(0,10);
+    if (!list.includes(key)) {
+      list.push(key);
+      localStorage.setItem(blockedKey, JSON.stringify(list));
+    }
+  };
+
+  const isBlocked = getBlockedDates().includes(date.toISOString().slice(0,10));
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>{format(date, 'EEEE, MMMM dd, yyyy')}</DialogTitle>
-          <DialogDescription className="sr-only">
-            View available bikes and bookings for this date
-          </DialogDescription>
+          <div className="flex justify-between items-center">
+            <div>
+              <DialogTitle>{format(date, 'EEEE, MMMM dd, yyyy')}</DialogTitle>
+              <DialogDescription className="sr-only">View available vehicles and bookings for this date</DialogDescription>
+            </div>
+            <div className="flex gap-2">
+              <Button size="sm" onClick={() => { setLocation(`/bookings?action=new&start=${date.toISOString()}`); onOpenChange(false); }}>Create Booking</Button>
+            </div>
+          </div>
         </DialogHeader>
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-3">
@@ -604,7 +810,7 @@ function DayDetailModal({
           </div>
 
           <div className="space-y-2">
-            <p className="text-xs font-medium text-muted-foreground">Available Bikes</p>
+            <p className="text-xs font-medium text-muted-foreground">Available Vehicles</p>
             <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto">
               {availableBikes.length > 0 ? (
                 availableBikes.map((bike) => (
@@ -613,7 +819,7 @@ function DayDetailModal({
                   </Badge>
                 ))
               ) : (
-                <p className="text-sm text-muted-foreground">No bikes available</p>
+                <p className="text-sm text-muted-foreground">No vehicles available</p>
               )}
             </div>
           </div>
@@ -666,26 +872,38 @@ function DayDetailModal({
 
 function getStatusColor(status: string): string {
   switch (status) {
-    case 'Active':
-      return '#dcfce7';
     case 'Booked':
-      return '#dbeafe';
+      return '#fde68a'; // Yellow
+    case 'Advance Paid':
+      return '#fdba74'; // Orange
+    case 'Confirmed':
+      return '#93c5fd'; // Blue
+    case 'Active':
+      return '#86efac'; // Green
     case 'Completed':
-      return '#f4f4f5';
+      return '#e5e7eb'; // Grey
+    case 'Cancelled':
+      return '#fca5a5'; // Red
     default:
-      return '#fef2f2';
+      return '#e5e7eb';
   }
 }
 
 function getStatusBorderColor(status: string): string {
   switch (status) {
+    case 'Booked':
+      return '#f59e0b';
+    case 'Advance Paid':
+      return '#f97316';
+    case 'Confirmed':
+      return '#2563eb';
     case 'Active':
       return '#16a34a';
-    case 'Booked':
-      return '#2563eb';
     case 'Completed':
-      return '#71717a';
-    default:
+      return '#6b7280';
+    case 'Cancelled':
       return '#dc2626';
+    default:
+      return '#6b7280';
   }
 }

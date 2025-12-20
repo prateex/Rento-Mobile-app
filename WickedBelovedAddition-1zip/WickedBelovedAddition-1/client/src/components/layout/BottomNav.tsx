@@ -7,7 +7,7 @@ export default function BottomNav() {
 
   const navItems = [
     { href: "/", icon: Home, label: "Home" },
-    { href: "/bikes", icon: Bike, label: "Bikes" },
+    { href: "/bikes", icon: Bike, label: "Vehicles" },
     { href: "/bookings", icon: CalendarCheck, label: "Bookings" },
     { href: "/customers", icon: Users, label: "Customers" },
     { href: "/settings", icon: Menu, label: "More" },

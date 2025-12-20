@@ -10,13 +10,16 @@ import { Search, Plus, Phone, CheckCircle2, UploadCloud, Eye, Edit2 } from "luci
 import { useForm } from "react-hook-form";
 import { useToast } from "@/hooks/use-toast";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useLocation } from "wouter";
 
 export default function Customers() {
-  const { customers, addCustomer, updateCustomer } = useStore();
+  const { customers, addCustomer, updateCustomer, deleteCustomer } = useStore();
   const [search, setSearch] = useState("");
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [viewingCustomer, setViewingCustomer] = useState<Customer | null>(null);
   const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<{ open: boolean; customer?: Customer }>({ open: false });
+  const [, setLocation] = useLocation();
   const { toast } = useToast();
 
   const filteredCustomers = customers.filter(c => 
@@ -30,10 +33,13 @@ export default function Customers() {
     });
     
     const idType = watch('idType');
+    const [frontUrl, setFrontUrl] = useState<string>(initialData?.idPhotos?.front || '');
+    const [backUrl, setBackUrl] = useState<string>(initialData?.idPhotos?.back || '');
+    const [documents, setDocuments] = useState<{ type: string; url: string }[]>(initialData?.documents || []);
 
     const onSubmit = (data: any) => {
       if (initialData) {
-         updateCustomer(initialData.id, data);
+         updateCustomer(initialData.id, { ...data, idPhotos: { front: frontUrl, back: backUrl }, documents });
          toast({ title: "Updated", description: "Customer details updated." });
       } else {
          const newCustomer: Customer = {
@@ -41,7 +47,8 @@ export default function Customers() {
            id: Math.random().toString(36).substr(2, 9),
            status: 'Verified',
            dateAdded: new Date().toISOString(),
-           idPhotos: { front: 'mock' }
+           idPhotos: { front: frontUrl, back: backUrl },
+           documents
          };
          addCustomer(newCustomer);
          toast({ title: "Registered", description: `${newCustomer.name} has been registered.` });
@@ -78,14 +85,61 @@ export default function Customers() {
         <div className="space-y-2">
           <label className="text-sm font-medium">Documents</label>
           <div className="grid grid-cols-2 gap-3">
-            <div className="border border-dashed border-zinc-300 rounded-lg p-4 flex flex-col items-center justify-center gap-2 text-muted-foreground hover:bg-zinc-50 cursor-pointer h-24">
-              <UploadCloud size={20} />
-              <span className="text-xs">{idType} Front</span>
+            <div className="border border-dashed border-zinc-300 rounded-lg p-2 flex flex-col items-center justify-center gap-1 text-muted-foreground hover:bg-zinc-50 cursor-pointer h-24">
+              <Button type="button" variant="outline" size="sm" className="h-7 text-xs" onClick={() => (document.getElementById('cust-front-gallery') as HTMLInputElement)?.click()}>
+                {idType} Front (Gallery)
+              </Button>
+              <Button type="button" variant="secondary" size="sm" className="h-7 text-xs" onClick={() => (document.getElementById('cust-front-camera') as HTMLInputElement)?.click()}>
+                {idType} Front (Camera)
+              </Button>
+              <input id="cust-front-gallery" type="file" accept="image/*" style={{ display: 'none' }} onChange={(e) => setFrontUrl(e.target.files && e.target.files[0] ? URL.createObjectURL(e.target.files[0]) : frontUrl)} />
+              <input id="cust-front-camera" type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={(e) => setFrontUrl(e.target.files && e.target.files[0] ? URL.createObjectURL(e.target.files[0]) : frontUrl)} />
             </div>
             {(idType === 'Aadhaar' || idType === 'Voter ID' || idType === 'Driving License') && (
-              <div className="border border-dashed border-zinc-300 rounded-lg p-4 flex flex-col items-center justify-center gap-2 text-muted-foreground hover:bg-zinc-50 cursor-pointer h-24">
-                <UploadCloud size={20} />
-                <span className="text-xs">{idType} Back</span>
+              <div className="border border-dashed border-zinc-300 rounded-lg p-2 flex flex-col items-center justify-center gap-1 text-muted-foreground hover:bg-zinc-50 cursor-pointer h-24">
+                <Button type="button" variant="outline" size="sm" className="h-7 text-xs" onClick={() => (document.getElementById('cust-back-gallery') as HTMLInputElement)?.click()}>
+                  {idType} Back (Gallery)
+                </Button>
+                <Button type="button" variant="secondary" size="sm" className="h-7 text-xs" onClick={() => (document.getElementById('cust-back-camera') as HTMLInputElement)?.click()}>
+                  {idType} Back (Camera)
+                </Button>
+                <input id="cust-back-gallery" type="file" accept="image/*" style={{ display: 'none' }} onChange={(e) => setBackUrl(e.target.files && e.target.files[0] ? URL.createObjectURL(e.target.files[0]) : backUrl)} />
+                <input id="cust-back-camera" type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={(e) => setBackUrl(e.target.files && e.target.files[0] ? URL.createObjectURL(e.target.files[0]) : backUrl)} />
+              </div>
+            )}
+          </div>
+          <div className="space-y-2 mt-2">
+            <label className="text-sm font-medium">Additional Documents</label>
+            <div className="flex items-center gap-2">
+              <Button type="button" variant="outline" size="sm" className="h-7 text-xs" onClick={() => (document.getElementById('cust-docs-gallery') as HTMLInputElement)?.click()}>
+                Upload from Gallery
+              </Button>
+              <Button type="button" variant="secondary" size="sm" className="h-7 text-xs" onClick={() => (document.getElementById('cust-docs-camera') as HTMLInputElement)?.click()}>
+                Open Camera
+              </Button>
+              <input id="cust-docs-gallery" type="file" accept="image/*" multiple style={{ display: 'none' }} onChange={(e) => {
+                const files = e.target.files ? Array.from(e.target.files) : [];
+                setDocuments([
+                  ...documents,
+                  ...files.map(f => ({ type: idType, url: URL.createObjectURL(f) }))
+                ]);
+              }} />
+              <input id="cust-docs-camera" type="file" accept="image/*" capture="environment" multiple style={{ display: 'none' }} onChange={(e) => {
+                const files = e.target.files ? Array.from(e.target.files) : [];
+                setDocuments([
+                  ...documents,
+                  ...files.map(f => ({ type: idType, url: URL.createObjectURL(f) }))
+                ]);
+              }} />
+            </div>
+            {documents.length > 0 && (
+              <div className="flex gap-2 flex-wrap mt-2">
+                {documents.map((doc, i) => (
+                  <div key={i} className="relative h-16 w-24 rounded-md overflow-hidden">
+                    <img src={doc.url} className="h-full w-full object-cover" />
+                    <button type="button" className="absolute top-1 right-1 bg-black/50 text-white rounded-full p-0.5" onClick={() => setDocuments(documents.filter((_, idx) => idx !== i))}>×</button>
+                  </div>
+                ))}
               </div>
             )}
           </div>
@@ -116,7 +170,7 @@ export default function Customers() {
           </Dialog>
         </div>
         
-        <Dialog open={!!viewingCustomer} onOpenChange={(open) => !open && setViewingCustomer(null)}>
+          <Dialog open={!!viewingCustomer} onOpenChange={(open) => !open && setViewingCustomer(null)}>
            <DialogContent className="sm:max-w-md top-[20%] translate-y-0">
               <DialogHeader>
                  <DialogTitle>Customer Details</DialogTitle>
@@ -140,19 +194,61 @@ export default function Customers() {
                     <div className="bg-zinc-50 p-3 rounded-lg border border-zinc-100 space-y-2">
                        <p className="text-xs font-bold text-muted-foreground uppercase">ID Proof ({viewingCustomer.idType})</p>
                        <div className="grid grid-cols-2 gap-2">
-                          <div className="aspect-video bg-zinc-200 rounded-md flex items-center justify-center text-xs text-muted-foreground">Front Photo</div>
-                          <div className="aspect-video bg-zinc-200 rounded-md flex items-center justify-center text-xs text-muted-foreground">Back Photo</div>
+                          <div className="aspect-video bg-zinc-200 rounded-md overflow-hidden">
+                            {viewingCustomer.idPhotos?.front ? (
+                              <img src={viewingCustomer.idPhotos.front} className="w-full h-full object-cover" />
+                            ) : (
+                              <div className="w-full h-full flex items-center justify-center text-xs text-muted-foreground">Front Photo</div>
+                            )}
+                          </div>
+                          <div className="aspect-video bg-zinc-200 rounded-md overflow-hidden">
+                            {viewingCustomer.idPhotos?.back ? (
+                              <img src={viewingCustomer.idPhotos.back} className="w-full h-full object-cover" />
+                            ) : (
+                              <div className="w-full h-full flex items-center justify-center text-xs text-muted-foreground">Back Photo</div>
+                            )}
+                          </div>
                        </div>
+                        {viewingCustomer.documents && viewingCustomer.documents.length > 0 && (
+                          <div className="space-y-1">
+                            <p className="text-xs font-medium">Additional Documents</p>
+                            <div className="flex gap-2 flex-wrap">
+                              {viewingCustomer.documents.map((doc, i) => (
+                                <img key={i} src={doc.url} className="h-16 w-24 rounded-md object-cover" />
+                              ))}
+                            </div>
+                          </div>
+                        )}
                     </div>
                     
                     <div className="flex gap-2">
                        <Button className="flex-1" variant="outline" onClick={() => { setEditingCustomer(viewingCustomer); setViewingCustomer(null); }}>
                           <Edit2 size={16} className="mr-2" /> Edit Details
                        </Button>
+                       <Button className="flex-1" variant="secondary" onClick={() => { setLocation(`/bookings?customerId=${viewingCustomer.id}`); setViewingCustomer(null); }}>
+                          View Bookings
+                       </Button>
+                       <Button className="flex-1" variant="destructive" onClick={() => setConfirmDelete({ open: true, customer: viewingCustomer })}>
+                          Delete
+                       </Button>
                     </div>
                  </div>
               )}
            </DialogContent>
+        </Dialog>
+
+        {/* Delete confirmation */}
+        <Dialog open={confirmDelete.open} onOpenChange={(open) => setConfirmDelete({ open, customer: confirmDelete.customer })}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Delete Customer?</DialogTitle>
+            </DialogHeader>
+            <p className="text-sm text-muted-foreground">This action cannot be undone.</p>
+            <div className="flex gap-2 mt-4">
+              <Button variant="outline" className="flex-1" onClick={() => setConfirmDelete({ open: false })}>Cancel</Button>
+              <Button variant="destructive" className="flex-1" onClick={() => { if (confirmDelete.customer) { deleteCustomer(confirmDelete.customer.id); toast({ title: 'Customer Deleted' }); } setConfirmDelete({ open: false, customer: undefined }); }}>Delete</Button>
+            </div>
+          </DialogContent>
         </Dialog>
         
         <Dialog open={!!editingCustomer} onOpenChange={(open) => !open && setEditingCustomer(null)}>
@@ -196,6 +292,7 @@ export default function Customers() {
                    <a href={`tel:${customer.phone}`} className="p-2 rounded-full bg-zinc-100 hover:bg-zinc-200 text-zinc-600" onClick={(e) => e.stopPropagation()}>
                       <Phone size={16} />
                    </a>
+                   <Button size="sm" variant="secondary" className="h-7 text-xs" onClick={(e) => { e.stopPropagation(); setLocation(`/bookings?customerId=${customer.id}`); }}>View</Button>
                 </div>
               </CardContent>
             </Card>

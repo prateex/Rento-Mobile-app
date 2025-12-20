@@ -27,15 +27,19 @@ export interface Damage {
 export interface Bike {
   id: string;
   name: string;
+  brand?: string;
+  model?: string;
   regNo: string;
   modelYear: string;
   fuelType: 'Petrol' | 'Electric';
+  type?: 'bike' | 'car';
   pricePerDay: number;
   status: 'Available' | 'Booked' | 'Maintenance';
   image: string; // Main thumbnail
   photos: string[]; // Gallery
   openingKm: number;
   kmDriven: number;
+  lastClosingOdometer?: number; // Last odometer reading when returned
   damages: Damage[];
 }
 
@@ -50,6 +54,7 @@ export interface Customer {
     front: string;
     back?: string;
   };
+  documents?: { type: string; url: string }[];
   status: 'Verified' | 'Pending';
   dateAdded: string;
   notes?: string;
@@ -61,8 +66,14 @@ export interface BookingHistory {
   changes: string;
 }
 
+export type PaymentMode = 'Cash' | 'UPI' | 'Other';
+export type PaymentChoice = 'Booking Only' | 'Advance Paid' | 'Fully Paid';
+export type BookingStatus = 'Booked' | 'Advance Paid' | 'Confirmed' | 'Active' | 'Completed' | 'Cancelled' | 'Deleted';
+
 export interface Booking {
   id: string;
+  bookingNumber: string; // BK0001, BK0002, etc.
+  invoiceNumber?: string; // INV-25260001, assigned after invoice generation
   bikeIds: string[];
   customerId: string;
   startDate: string;
@@ -70,10 +81,21 @@ export interface Booking {
   rent: number;
   deposit: number;
   totalAmount: number;
-  status: 'Booked' | 'Active' | 'Completed' | 'Cancelled' | 'Deleted';
+  status: BookingStatus;
   paymentStatus: 'Paid' | 'Partial' | 'Unpaid';
+  paymentChoice?: PaymentChoice; // Booking Only, Advance Paid, Fully Paid
+  paymentMode?: PaymentMode; // Cash, UPI, Other
+  paymentType?: PaymentMode; // explicit type used during mark paid flow
+  utrNumber?: string; // For UPI payments
+  advanceAmount?: number; // amount collected as advance (part of rent)
+  remainingAmount?: number; // totalAmount - advanceAmount when partial
   startImage?: string;
   endImage?: string;
+  openingOdometer?: number; // Odometer reading at start (Mark Taken)
+  closingOdometer?: number; // Odometer reading at return (Mark Returned)
+  damagesDuringRental?: Damage[]; // Damages found during this rental
+  depositDeduction?: number; // Amount deducted from deposit (default 0)
+  damageNotes?: string; // Summary of damages found
   history: BookingHistory[];
   takenAt?: string;
   takenBy?: string;
@@ -82,8 +104,16 @@ export interface Booking {
   paidAt?: string;
   paidBy?: string;
   cancelledAt?: string;
+  invoiceGeneratedAt?: string;
+  invoiceGeneratedBy?: string;
   refundAmount?: number;
   finalized?: boolean;
+  invoicePending?: boolean; // Track if invoice needs to be generated
+  whatsappSent?: {
+    bookingConfirmation?: boolean;
+    paymentConfirmation?: boolean;
+    invoice?: boolean;
+  };
 }
 
 interface AppState {
@@ -95,6 +125,17 @@ interface AppState {
   settings: {
     showRevenueOnDashboard: boolean;
     allowBackdateOverride: boolean;
+    gstNumber?: string; // Owner's GST number for invoice calculation
+  };
+  whatsappTemplates: {
+    bookingConfirmation: string;
+    paymentConfirmation: string;
+    invoiceMessage: string;
+  };
+  counters: {
+    bookingCounter: number;
+    invoiceCounterFY: string; // Format: "25-26" for FY2025-26
+    invoiceCounter: number;
   };
 
   login: (phone: string) => void;
@@ -106,20 +147,27 @@ interface AppState {
   
   addCustomer: (customer: Customer) => void;
   updateCustomer: (id: string, data: Partial<Customer>) => void;
+  deleteCustomer: (id: string) => void;
   
   addBooking: (booking: Booking) => void;
   updateBooking: (id: string, data: Partial<Booking>) => void;
   deleteBooking: (id: string) => void;
   cancelBooking: (id: string) => void;
   returnBooking: (id: string) => void;
-  markBookingAsTaken: (id: string) => void;
+  markBookingAsTaken: (id: string, openingOdometer?: number) => void;
   updatePaymentStatus: (id: string, status: 'Paid' | 'Partial' | 'Unpaid') => void;
+  
+  getNextBookingNumber: () => string;
+  getNextInvoiceNumber: () => string;
+  assignInvoiceNumber: (bookingId: string) => void;
 
   addUser: (user: User) => void;
   removeUser: (id: string) => void;
 
   toggleRevenueVisibility: () => void;
   toggleBackdateOverride: () => void;
+  updateWhatsappTemplate: (type: 'bookingConfirmation' | 'paymentConfirmation' | 'invoiceMessage', message: string) => void;
+  updateSettings: (settings: Partial<AppState['settings']>) => void;
 }
 
 // Seed Data
@@ -127,6 +175,7 @@ const MOCK_BIKES: Bike[] = [
   {
     id: '1',
     name: 'Royal Enfield Classic 350',
+    type: 'bike',
     regNo: 'KA-01-HJ-1234',
     modelYear: '2023',
     fuelType: 'Petrol',
@@ -141,6 +190,7 @@ const MOCK_BIKES: Bike[] = [
   {
     id: '2',
     name: 'Honda Activa 6G',
+    type: 'bike',
     regNo: 'KA-05-MN-5678',
     modelYear: '2022',
     fuelType: 'Petrol',
@@ -155,6 +205,7 @@ const MOCK_BIKES: Bike[] = [
   {
     id: '3',
     name: 'Ather 450X',
+    type: 'bike',
     regNo: 'KA-53-EV-9012',
     modelYear: '2024',
     fuelType: 'Electric',
@@ -164,6 +215,36 @@ const MOCK_BIKES: Bike[] = [
     photos: ['https://images.unsplash.com/photo-1633856368316-4c3b6f6203d7?auto=format&fit=crop&q=80&w=800'],
     openingKm: 200,
     kmDriven: 200,
+    damages: []
+  },
+  {
+    id: '4',
+    name: 'Toyota Fortuner',
+    type: 'car',
+    regNo: 'KA-01-AB-5000',
+    modelYear: '2023',
+    fuelType: 'Petrol',
+    pricePerDay: 3500,
+    status: 'Available',
+    image: 'https://images.unsplash.com/photo-1605559424843-9e4c3ff86b90?auto=format&fit=crop&q=80&w=800',
+    photos: ['https://images.unsplash.com/photo-1605559424843-9e4c3ff86b90?auto=format&fit=crop&q=80&w=800'],
+    openingKm: 1000,
+    kmDriven: 1200,
+    damages: []
+  },
+  {
+    id: '5',
+    name: 'Maruti Swift',
+    type: 'car',
+    regNo: 'KA-02-CD-6789',
+    modelYear: '2022',
+    fuelType: 'Petrol',
+    pricePerDay: 2000,
+    status: 'Available',
+    image: 'https://images.unsplash.com/photo-1552820728-8ac41f1ce891?auto=format&fit=crop&q=80&w=800',
+    photos: ['https://images.unsplash.com/photo-1552820728-8ac41f1ce891?auto=format&fit=crop&q=80&w=800'],
+    openingKm: 500,
+    kmDriven: 750,
     damages: []
   }
 ];
@@ -192,6 +273,7 @@ const MOCK_CUSTOMERS: Customer[] = [
 const MOCK_BOOKINGS: Booking[] = [
   {
     id: '1',
+    bookingNumber: 'BK0001',
     bikeIds: ['2'],
     customerId: '1',
     startDate: new Date().toISOString(),
@@ -210,6 +292,29 @@ const MOCK_USERS: User[] = [
   { id: '2', name: 'Suresh J', phone: '8888888888', role: 'staff' }
 ];
 
+/**
+ * Gets the current financial year in format "YY-YY" (e.g., "25-26" for FY 2025-26)
+ * Financial year starts on April 1
+ */
+const getCurrentFinancialYear = (): string => {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = now.getMonth();
+  
+  // Financial year starts in April (month 3)
+  if (month < 3) {
+    // January, February, March: FY is previous year
+    const fy = year - 1;
+    const nextFy = year;
+    return `${fy.toString().slice(-2)}-${nextFy.toString().slice(-2)}`;
+  } else {
+    // April onwards: FY is current year
+    const fy = year;
+    const nextFy = year + 1;
+    return `${fy.toString().slice(-2)}-${nextFy.toString().slice(-2)}`;
+  }
+};
+
 export const useStore = create<AppState>()(
   persist(
     (set, get) => ({
@@ -220,7 +325,18 @@ export const useStore = create<AppState>()(
       users: MOCK_USERS,
       settings: {
         showRevenueOnDashboard: true,
-        allowBackdateOverride: false
+        allowBackdateOverride: false,
+        gstNumber: undefined
+      },
+      whatsappTemplates: {
+        bookingConfirmation: 'Hi {customerName}, your booking #{bookingNumber} is confirmed!\n\nBike: {bikeName} ({regNo})\nStart Date: {startDate}\nEnd Date: {endDate}\nTotal Amount: ₹{totalAmount}\n\nThank you for choosing us!',
+        paymentConfirmation: 'Hi {customerName}, payment of ₹{paidAmount} received for booking #{bookingNumber}.\n\nPayment Mode: {paymentMode}\nRemaining Balance: ₹{remainingBalance}\n\nThank you!',
+        invoiceMessage: 'Hi {customerName}, your invoice #{invoiceNumber} for booking #{bookingNumber} is ready.\n\nAmount: ₹{totalAmount}\nDeposit Deducted: ₹{depositDeduction}\nRefund: ₹{refundAmount}\n\nPlease find the attached PDF.'
+      },
+      counters: {
+        bookingCounter: 1,
+        invoiceCounterFY: getCurrentFinancialYear(),
+        invoiceCounter: 0
       },
 
       login: (phone) => {
@@ -244,6 +360,9 @@ export const useStore = create<AppState>()(
       addCustomer: (customer) => set((state) => ({ customers: [...state.customers, customer] })),
       updateCustomer: (id, data) => set((state) => ({
         customers: state.customers.map((c) => (c.id === id ? { ...c, ...data } : c))
+      })),
+      deleteCustomer: (id) => set((state) => ({
+        customers: state.customers.filter((c) => c.id !== id)
       })),
 
       addBooking: (booking) => set((state) => {
@@ -293,16 +412,20 @@ export const useStore = create<AppState>()(
         };
       }),
 
-      markBookingAsTaken: (id) => set((state) => {
+      markBookingAsTaken: (id, openingOdometer) => set((state) => {
         const user = state.user;
         const booking = state.bookings.find(b => b.id === id);
         const existingHistory = booking && Array.isArray(booking.history) ? booking.history : [];
+        if (!booking || booking.status !== 'Confirmed') {
+          return { bookings: state.bookings };
+        }
         return {
           bookings: state.bookings.map((b) => (b.id === id ? { 
             ...b, 
             status: 'Active', 
             takenAt: new Date().toISOString(),
             takenBy: user?.id,
+            openingOdometer,
             history: [...existingHistory, { byUserId: user?.id || 'unknown', timestamp: new Date().toISOString(), changes: 'Marked as Taken' }]
           } : b))
         };
@@ -333,6 +456,73 @@ export const useStore = create<AppState>()(
 
       toggleBackdateOverride: () => set((state) => ({
         settings: { ...state.settings, allowBackdateOverride: !state.settings.allowBackdateOverride }
+      })),
+
+      updateSettings: (newSettings) => set((state) => ({
+        settings: { ...state.settings, ...newSettings }
+      })),
+
+      /**
+       * Thread-safe booking number generation
+       * Returns BK0001, BK0002, etc.
+       */
+      getNextBookingNumber: () => {
+        const state = get();
+        const nextNumber = state.counters.bookingCounter + 1;
+        set((s) => ({
+          counters: { ...s.counters, bookingCounter: nextNumber }
+        }));
+        return `BK${nextNumber.toString().padStart(4, '0')}`;
+      },
+
+      /**
+       * Thread-safe invoice number generation
+       * Returns INV-<FY><NextFY><Sequence> (e.g., INV-25260001)
+       * Resets counter on April 1 for new financial year
+       */
+      getNextInvoiceNumber: () => {
+        const state = get();
+        const currentFY = getCurrentFinancialYear();
+        
+        // Check if financial year has changed
+        let newCounter = state.counters.invoiceCounter + 1;
+        let newFY = state.counters.invoiceCounterFY;
+        
+        if (currentFY !== state.counters.invoiceCounterFY) {
+          // New financial year, reset counter
+          newCounter = 1;
+          newFY = currentFY;
+        }
+        
+        set((s) => ({
+          counters: { 
+            ...s.counters, 
+            invoiceCounter: newCounter,
+            invoiceCounterFY: newFY
+          }
+        }));
+        
+        // Format: INV-25260001 (FY-Sequence with 4 digits)
+        return `INV-${newFY.replace('-', '')}${newCounter.toString().padStart(4, '0')}`;
+      },
+
+      /**
+       * Assign invoice number to a booking after invoice generation
+       * This ensures invoice number is only assigned when invoice is actually generated
+       */
+      assignInvoiceNumber: (bookingId: string) => {
+        set((state) => {
+          const invoiceNumber = get().getNextInvoiceNumber();
+          return {
+            bookings: state.bookings.map((b) => 
+              b.id === bookingId ? { ...b, invoiceNumber } : b
+            )
+          };
+        });
+      },
+
+      updateWhatsappTemplate: (type, message) => set((state) => ({
+        whatsappTemplates: { ...state.whatsappTemplates, [type]: message }
       })),
     }),
     {

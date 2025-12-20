@@ -1,13 +1,13 @@
 import { useState, useEffect, useMemo } from "react";
 import MobileLayout from "@/components/layout/MobileLayout";
-import { useStore, Bike, Damage } from "@/lib/store";
+import { useStore, Bike, Damage, Booking } from "@/lib/store";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Search, Plus, Filter, Fuel, Calendar, UploadCloud, AlertTriangle, Gauge, X, Trash2, Edit2, CalendarDays } from "lucide-react";
+import { Search, Plus, Filter, Fuel, Calendar, UploadCloud, AlertTriangle, Gauge, X, Trash2, Edit2, CalendarDays, Bike as BikeIcon, Car as CarIcon } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { useToast } from "@/hooks/use-toast";
 import { useLocation } from "wouter";
@@ -17,10 +17,33 @@ import { Calendar as CalendarComponent } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { format, parseISO, startOfDay, endOfDay, addDays, isWithinInterval } from "date-fns";
 
+const getVehicleIcon = (type?: string) => {
+  return type === 'car' ? <CarIcon size={16} /> : <BikeIcon size={16} />;
+};
+// Local helper to check per-vehicle block (shared key with calendar)
+const VEHICLE_BLOCK_KEY = 'rento_blocked_vehicle_days';
+function isBikeBlockedOnDateLocal(bikeId: string, date: Date | null): boolean {
+  if (!date) return false;
+  try {
+    const raw = localStorage.getItem(VEHICLE_BLOCK_KEY);
+    const map = raw ? JSON.parse(raw) as Record<string, string[]> : {};
+    const key = date.toISOString().slice(0,10);
+    const arr = map[bikeId] || [];
+    return arr.includes(key);
+  } catch {
+    return false;
+  }
+}
+
+const getVehicleLabel = (type?: string) => {
+  return type === 'car' ? 'Car' : 'Bike';
+};
+
 export default function Bikes() {
   const { bikes, bookings, addBike, updateBike, deleteBike, user } = useStore();
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<string>("all");
+  const [vehicleTypeFilter, setVehicleTypeFilter] = useState<string>("all");
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [editingBike, setEditingBike] = useState<Bike | null>(null);
   const [viewingBike, setViewingBike] = useState<Bike | null>(null);
@@ -67,26 +90,60 @@ export default function Bikes() {
     };
   }, [bookings]);
 
+  // Derive effective status for filters using current bookings
+  const getEffectiveStatusForBike = useMemo(() => {
+    return (bike: Bike, date: Date | null): string => {
+      if (bike.status === 'Maintenance') return 'Maintenance';
+      const dayStart = date ? startOfDay(date) : null;
+      const dayEnd = date ? endOfDay(date) : null;
+      const relevantBookings = bookings.filter((b: Booking) => b.bikeIds.includes(bike.id) && b.status !== 'Deleted');
+      if (!date) {
+        // If no date filter, prefer showing active status if any ongoing booking overlaps today
+        const today = startOfDay(new Date());
+        const todayEnd = endOfDay(new Date());
+        const todayBooking = relevantBookings.find(b => {
+          const s = parseISO(b.startDate);
+          const e = parseISO(b.endDate);
+          return s < todayEnd && e > today;
+        });
+        return todayBooking?.status || bike.status;
+      }
+      const match = relevantBookings.find(b => {
+        const s = parseISO(b.startDate);
+        const e = parseISO(b.endDate);
+        return dayStart && dayEnd ? (s < dayEnd && e > dayStart) : false;
+      });
+      return match?.status || (isBikeAvailableOnDate(bike.id, date) ? 'Available' : 'Booked');
+    };
+  }, [bookings, isBikeAvailableOnDate]);
+
   const filteredBikes = useMemo(() => {
     const availabilityDate = getAvailabilityDate();
     
     return bikes.filter(bike => {
       const matchesSearch = bike.name.toLowerCase().includes(search.toLowerCase()) || 
-                            bike.regNo.toLowerCase().includes(search.toLowerCase());
-      const matchesFilter = filter === "all" || bike.status.toLowerCase() === filter.toLowerCase();
+                bike.regNo.toLowerCase().includes(search.toLowerCase()) ||
+                (bike.brand || '').toLowerCase().includes(search.toLowerCase()) ||
+                (bike.model || '').toLowerCase().includes(search.toLowerCase());
+      const effectiveStatus = getEffectiveStatusForBike(bike, availabilityDate);
+      const matchesFilter = filter === "all" || effectiveStatus.toLowerCase() === filter.toLowerCase();
+      const matchesVehicleType = vehicleTypeFilter === "all" || (bike.type || 'bike') === vehicleTypeFilter;
       const matchesDateAvailability = dateFilter === 'all' || 
-        (bike.status !== 'Maintenance' && isBikeAvailableOnDate(bike.id, availabilityDate));
+        (bike.status !== 'Maintenance' && isBikeAvailableOnDate(bike.id, availabilityDate) && !isBikeBlockedOnDateLocal(bike.id, availabilityDate));
       
-      return matchesSearch && matchesFilter && matchesDateAvailability;
+      return matchesSearch && matchesFilter && matchesDateAvailability && matchesVehicleType;
     });
-  }, [bikes, search, filter, dateFilter, customDate, isBikeAvailableOnDate]);
+  }, [bikes, search, filter, vehicleTypeFilter, dateFilter, customDate, isBikeAvailableOnDate, getEffectiveStatusForBike]);
 
   const BikeForm = ({ initialData, onClose }: { initialData?: Bike, onClose: () => void }) => {
     const { register, handleSubmit, watch, setValue } = useForm<Bike>({
       defaultValues: initialData || {
         photos: [],
         status: 'Available',
-        fuelType: 'Petrol'
+        fuelType: 'Petrol',
+        type: 'bike',
+        brand: '',
+        model: ''
       }
     });
     
@@ -95,10 +152,18 @@ export default function Bikes() {
     // Mock previous damages for new bike
     const [previousDamages, setPreviousDamages] = useState<Damage[]>(initialData?.damages || []);
 
-    const handleAddPhoto = () => {
-       // Mock adding a photo
-       const newPhoto = 'https://images.unsplash.com/photo-1558981806-ec527fa84c3d?auto=format&fit=crop&q=80&w=800';
-       setPhotos([...photos, newPhoto]);
+    // File inputs for camera/gallery
+    const galleryInputRef = useState<HTMLInputElement | null>(null)[0];
+    const cameraInputRef = useState<HTMLInputElement | null>(null)[0];
+    const handleGalleryPick = (files: FileList | null) => {
+      if (!files) return;
+      const urls = Array.from(files).slice(0, Math.max(0, 6 - photos.length)).map(f => URL.createObjectURL(f));
+      setPhotos([...photos, ...urls]);
+    };
+    const handleCameraShot = (files: FileList | null) => {
+      if (!files) return;
+      const urls = Array.from(files).slice(0, Math.max(0, 6 - photos.length)).map(f => URL.createObjectURL(f));
+      setPhotos([...photos, ...urls]);
     };
 
     const handleRemovePhoto = (index: number) => {
@@ -133,14 +198,14 @@ export default function Bikes() {
 
       if (initialData) {
         updateBike(initialData.id, bikeData);
-        toast({ title: "Bike Updated", description: "Changes saved successfully." });
+        toast({ title: "Vehicle Updated", description: "Changes saved successfully." });
       } else {
         const newBike = {
            ...bikeData,
            id: Math.random().toString(36).substr(2, 9),
         };
         addBike(newBike);
-        toast({ title: "Bike Added", description: `${newBike.name} added to fleet.` });
+        toast({ title: "Vehicle Added", description: `${newBike.name} added to fleet.` });
       }
       onClose();
     };
@@ -159,16 +224,22 @@ export default function Bikes() {
               </div>
             ))}
             {photos.length < 6 && (
-              <div onClick={handleAddPhoto} className="h-20 w-20 flex-shrink-0 border border-dashed border-zinc-300 rounded-md flex flex-col items-center justify-center gap-1 cursor-pointer hover:bg-zinc-50">
-                <UploadCloud size={20} className="text-muted-foreground" />
-                <span className="text-[10px] text-muted-foreground">Add Photo</span>
+              <div className="h-20 w-20 flex-shrink-0 border border-dashed border-zinc-300 rounded-md flex flex-col items-center justify-center gap-1">
+                <Button type="button" variant="outline" size="sm" className="h-6 text-[10px]" onClick={() => (document.getElementById('bike-gallery-input') as HTMLInputElement)?.click()}>
+                  Upload from Gallery
+                </Button>
+                <Button type="button" variant="secondary" size="sm" className="h-6 text-[10px]" onClick={() => (document.getElementById('bike-camera-input') as HTMLInputElement)?.click()}>
+                  Open Camera
+                </Button>
+                <input id="bike-gallery-input" type="file" accept="image/*" multiple style={{ display: 'none' }} onChange={(e) => handleGalleryPick(e.target.files)} />
+                <input id="bike-camera-input" type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={(e) => handleCameraShot(e.target.files)} />
               </div>
             )}
           </div>
         </div>
 
         <div className="space-y-2">
-          <label className="text-sm font-medium">Bike Name</label>
+          <label className="text-sm font-medium">Vehicle Name</label>
           <Input {...register("name", { required: true })} placeholder="e.g. Royal Enfield Classic 350" />
         </div>
         <div className="space-y-2">
@@ -185,6 +256,17 @@ export default function Bikes() {
             <Input type="number" {...register("pricePerDay", { required: true })} placeholder="1200" />
           </div>
         </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Brand</label>
+            <Input {...register("brand")} placeholder="e.g. Honda" />
+          </div>
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Model</label>
+            <Input {...register("model")} placeholder="e.g. Activa 6G" />
+          </div>
+        </div>
         
         <div className="grid grid-cols-2 gap-4">
           <div className="space-y-2">
@@ -198,12 +280,20 @@ export default function Bikes() {
         </div>
 
         <div className="space-y-2">
-           <label className="text-sm font-medium">Fuel Type</label>
+            <label className="text-sm font-medium">Fuel Type</label>
            <select {...register("fuelType")} className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 [&>span]:line-clamp-1">
              <option value="Petrol">Petrol</option>
              <option value="Electric">Electric</option>
            </select>
         </div>
+
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Type</label>
+            <select {...register("type")} className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm">
+             <option value="bike">Bike</option>
+             <option value="car">Car</option>
+            </select>
+          </div>
         
         {/* Previous Damages Section */}
         <div className="space-y-2">
@@ -213,14 +303,17 @@ export default function Bikes() {
                  <Plus size={10} className="mr-1" /> Add
               </Button>
            </div>
-           {previousDamages.length > 0 ? (
+            {previousDamages.length > 0 ? (
               <div className="space-y-2">
                  {previousDamages.map((d, i) => (
-                    <div key={i} className="bg-zinc-50 p-2 rounded border flex gap-2 items-center">
-                       <img src={d.photoUrls[0]} className="h-8 w-8 rounded bg-zinc-200" />
-                       <span className="text-xs flex-1">{d.notes}</span>
-                       <Badge variant="secondary" className="text-[10px]">{d.severity}</Badge>
-                    </div>
+                  <div key={i} className="bg-zinc-50 p-2 rounded border flex gap-2 items-center">
+                    <img src={d.photoUrls[0]} className="h-8 w-8 rounded bg-zinc-200" />
+                    <span className="text-xs flex-1">{d.notes}</span>
+                    <Badge variant="secondary" className="text-[10px]">{d.severity}</Badge>
+                    <Button type="button" variant="ghost" size="sm" className="h-6" onClick={() => setPreviousDamages(previousDamages.filter((_, idx) => idx !== i))}>
+                     <Trash2 size={12} />
+                    </Button>
+                  </div>
                  ))}
               </div>
            ) : (
@@ -241,7 +334,7 @@ export default function Bikes() {
            </div>
         )}
 
-        <Button type="submit" className="w-full h-12 mt-4">{initialData ? 'Save Changes' : 'Add Bike'}</Button>
+        <Button type="submit" className="w-full h-12 mt-4">{initialData ? 'Save Changes' : 'Add Vehicle'}</Button>
       </form>
     );
   };
@@ -389,7 +482,7 @@ export default function Bikes() {
     <MobileLayout>
       <div className="p-4 space-y-4 min-h-screen pb-24">
         <div className="flex justify-between items-center">
-          <h1 className="text-2xl font-bold">Bikes</h1>
+          <h1 className="text-2xl font-bold">Vehicles</h1>
           <Dialog open={isAddOpen} onOpenChange={setIsAddOpen}>
             <DialogTrigger asChild>
               <Button size="icon" className="rounded-full h-10 w-10 shadow-md">
@@ -398,7 +491,7 @@ export default function Bikes() {
             </DialogTrigger>
             <DialogContent className="sm:max-w-md top-[5%] translate-y-0 h-[90vh] overflow-y-auto">
               <DialogHeader>
-                <DialogTitle>Add New Bike</DialogTitle>
+                <DialogTitle>Add New Vehicle</DialogTitle>
               </DialogHeader>
               <BikeForm onClose={() => setIsAddOpen(false)} />
             </DialogContent>
@@ -407,7 +500,7 @@ export default function Bikes() {
           <Dialog open={!!editingBike} onOpenChange={(open) => !open && setEditingBike(null)}>
             <DialogContent className="sm:max-w-md top-[5%] translate-y-0 h-[90vh] overflow-y-auto">
               <DialogHeader>
-                <DialogTitle>Edit Bike</DialogTitle>
+                <DialogTitle>Edit Vehicle</DialogTitle>
               </DialogHeader>
               {editingBike && <BikeForm initialData={editingBike} onClose={() => setEditingBike(null)} />}
             </DialogContent>
@@ -443,7 +536,7 @@ export default function Bikes() {
                             <p className="text-xs text-muted-foreground">Odometer</p>
                             <div className="flex items-center gap-1">
                                <Gauge size={14} className="text-muted-foreground" />
-                               <p className="text-lg font-bold">{viewingBike.kmDriven} km</p>
+                              <p className="text-lg font-bold">{viewingBike.kmDriven} km</p>
                             </div>
                          </div>
                       </div>
@@ -491,8 +584,8 @@ export default function Bikes() {
                       {/* Admin Actions */}
                       {user?.role === 'admin' && (
                          <div className="pt-4 border-t border-zinc-100">
-                            <Button variant="outline" className="w-full text-red-600 border-red-200 hover:bg-red-50" onClick={() => { deleteBike(viewingBike.id); setViewingBike(null); toast({title: "Bike Deleted"}); }}>
-                               <Trash2 size={16} className="mr-2" /> Delete Bike
+                           <Button variant="outline" className="w-full text-red-600 border-red-200 hover:bg-red-50" onClick={() => { deleteBike(viewingBike.id); setViewingBike(null); toast({title: "Vehicle Deleted"}); }}>
+                              <Trash2 size={16} className="mr-2" /> Delete Vehicle
                             </Button>
                          </div>
                       )}
@@ -504,7 +597,7 @@ export default function Bikes() {
           
           <Dialog open={isDamageModalOpen} onOpenChange={setIsDamageModalOpen}>
              <DialogContent className="sm:max-w-md top-[20%] translate-y-0">
-               <DialogHeader>
+              <DialogHeader>
                  <DialogTitle>Report Damage</DialogTitle>
                </DialogHeader>
                {viewingBike && <DamageReportForm bikeId={viewingBike.id} onClose={() => setIsDamageModalOpen(false)} />}
@@ -519,7 +612,7 @@ export default function Bikes() {
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground" size={16} />
               <Input 
-                placeholder="Search bikes..." 
+                placeholder="Search vehicles..." 
                 className="pl-9 bg-zinc-50 border-zinc-200"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
@@ -536,10 +629,27 @@ export default function Bikes() {
                 <SelectItem value="all">All Status</SelectItem>
                 <SelectItem value="Available">Available</SelectItem>
                 <SelectItem value="Booked">Booked</SelectItem>
+                <SelectItem value="Advance Paid">Advance Paid</SelectItem>
+                <SelectItem value="Confirmed">Confirmed</SelectItem>
+                <SelectItem value="Active">Active</SelectItem>
+                <SelectItem value="Completed">Completed</SelectItem>
+                <SelectItem value="Cancelled">Cancelled</SelectItem>
                 <SelectItem value="Maintenance">Maintenance</SelectItem>
               </SelectContent>
             </Select>
-          </div>
+            <Select value={vehicleTypeFilter} onValueChange={setVehicleTypeFilter}>
+              <SelectTrigger className="h-9 w-[120px] rounded-full bg-white border-zinc-200 text-xs">
+                <div className="flex items-center gap-2">
+                  <Filter size={14} />
+                  <span className="truncate">{vehicleTypeFilter === 'all' ? 'All' : vehicleTypeFilter === 'bike' ? 'Bikes' : 'Cars'}</span>
+                </div>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Types</SelectItem>
+                <SelectItem value="bike">Bikes</SelectItem>
+                <SelectItem value="car">Cars</SelectItem>
+              </SelectContent>
+            </Select>          </div>
           
           {/* Quick Date Filters */}
           <div className="flex gap-1.5">
@@ -595,7 +705,7 @@ export default function Bikes() {
           
           {dateFilter !== 'all' && (
             <div className="text-xs text-muted-foreground flex items-center gap-1">
-              <span>Showing {filteredBikes.length} bikes available on</span>
+              <span>Showing {filteredBikes.length} vehicles available on</span>
               <span className="font-medium text-foreground">
                 {dateFilter === 'today' ? 'Today' : 
                  dateFilter === 'tomorrow' ? 'Tomorrow' : 

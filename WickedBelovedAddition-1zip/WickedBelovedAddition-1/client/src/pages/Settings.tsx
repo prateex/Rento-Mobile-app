@@ -6,18 +6,22 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { LogOut, Store, Users, FileText, Shield, ChevronRight, Eye, EyeOff, Plus, UserPlus, Calendar } from "lucide-react";
+import { LogOut, Store, Users, FileText, Shield, ChevronRight, Eye, EyeOff, Plus, UserPlus, Calendar, MessageCircle } from "lucide-react";
 import { useLocation } from "wouter";
 import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useForm } from "react-hook-form";
 import { useToast } from "@/hooks/use-toast";
 import { useState } from "react";
+import { Textarea } from "@/components/ui/textarea";
 
 export default function Settings() {
-  const { user, logout, settings, toggleRevenueVisibility, toggleBackdateOverride, users, addUser, removeUser } = useStore();
+  const { user, logout, settings, toggleRevenueVisibility, toggleBackdateOverride, users, addUser, removeUser, whatsappTemplates, updateWhatsappTemplate } = useStore();
   const [, setLocation] = useLocation();
   const [isAddStaffOpen, setIsAddStaffOpen] = useState(false);
+  const [bookingConfirmationEdit, setBookingConfirmationEdit] = useState(whatsappTemplates.bookingConfirmation);
+  const [paymentConfirmationEdit, setPaymentConfirmationEdit] = useState(whatsappTemplates.paymentConfirmation);
+  const [invoiceMessageEdit, setInvoiceMessageEdit] = useState(whatsappTemplates.invoiceMessage);
   const { toast } = useToast();
 
   const handleLogout = () => {
@@ -80,8 +84,9 @@ export default function Settings() {
         </Card>
 
         <Tabs defaultValue="shop" className="w-full">
-          <TabsList className="w-full grid grid-cols-2 bg-zinc-100 p-1 rounded-xl">
+          <TabsList className="w-full grid grid-cols-3 bg-zinc-100 p-1 rounded-xl">
             <TabsTrigger value="shop" className="rounded-lg data-[state=active]:bg-white data-[state=active]:shadow-sm">Shop</TabsTrigger>
+            <TabsTrigger value="messages" className="rounded-lg data-[state=active]:bg-white data-[state=active]:shadow-sm">Messages</TabsTrigger>
             <TabsTrigger value="staff" className="rounded-lg data-[state=active]:bg-white data-[state=active]:shadow-sm">Staff</TabsTrigger>
           </TabsList>
           
@@ -141,6 +146,83 @@ export default function Settings() {
                   <Input defaultValue="support@citybike.com" />
                 </div>
                 <Button className="w-full mt-2">Save Changes</Button>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="messages" className="space-y-4 mt-4 animate-in slide-in-from-left-4 duration-300">
+            <Card className="border-zinc-100 shadow-sm">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <MessageCircle size={18} className="text-green-600" /> WhatsApp Message Templates
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                {/* Booking Confirmation */}
+                <div className="space-y-2 pb-4 border-b">
+                  <Label className="text-sm font-semibold">Booking Confirmation Message</Label>
+                  <Textarea
+                    value={bookingConfirmationEdit}
+                    onChange={(e) => setBookingConfirmationEdit(e.target.value)}
+                    className="min-h-[120px] text-xs resize-none"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    💡 Available variables: {'{customerName}'}, {'{bookingNumber}'}, {'{bikeName}'}, {'{regNo}'}, {'{startDate}'}, {'{endDate}'}, {'{totalAmount}'}
+                  </p>
+                  <Button
+                    size="sm"
+                    onClick={() => {
+                      updateWhatsappTemplate('bookingConfirmation', bookingConfirmationEdit);
+                      toast({ title: "Saved", description: "Booking confirmation template updated." });
+                    }}
+                  >
+                    Save Template
+                  </Button>
+                </div>
+
+                {/* Payment Confirmation */}
+                <div className="space-y-2 pb-4 border-b">
+                  <Label className="text-sm font-semibold">Payment Confirmation Message</Label>
+                  <Textarea
+                    value={paymentConfirmationEdit}
+                    onChange={(e) => setPaymentConfirmationEdit(e.target.value)}
+                    className="min-h-[120px] text-xs resize-none"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    💡 Available variables: {'{customerName}'}, {'{bookingNumber}'}, {'{paidAmount}'}, {'{paymentMode}'}, {'{remainingBalance}'}
+                  </p>
+                  <Button
+                    size="sm"
+                    onClick={() => {
+                      updateWhatsappTemplate('paymentConfirmation', paymentConfirmationEdit);
+                      toast({ title: "Saved", description: "Payment confirmation template updated." });
+                    }}
+                  >
+                    Save Template
+                  </Button>
+                </div>
+
+                {/* Invoice Message */}
+                <div className="space-y-2">
+                  <Label className="text-sm font-semibold">Invoice Message</Label>
+                  <Textarea
+                    value={invoiceMessageEdit}
+                    onChange={(e) => setInvoiceMessageEdit(e.target.value)}
+                    className="min-h-[120px] text-xs resize-none"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    💡 Available variables: {'{customerName}'}, {'{bookingNumber}'}, {'{invoiceNumber}'}, {'{totalAmount}'}, {'{depositDeduction}'}, {'{refundAmount}'}
+                  </p>
+                  <Button
+                    size="sm"
+                    onClick={() => {
+                      updateWhatsappTemplate('invoiceMessage', invoiceMessageEdit);
+                      toast({ title: "Saved", description: "Invoice message template updated." });
+                    }}
+                  >
+                    Save Template
+                  </Button>
+                </div>
               </CardContent>
             </Card>
           </TabsContent>

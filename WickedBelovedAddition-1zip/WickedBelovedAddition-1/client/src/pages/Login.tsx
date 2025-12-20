@@ -34,7 +34,7 @@ export default function Login() {
             <Bike size={40} className="text-black" />
           </div>
           <div className="text-center">
-            <h1 className="text-2xl font-bold tracking-tight">BikeRental</h1>
+            <h1 className="text-2xl font-bold tracking-tight">VehicleRental</h1>
             <p className="text-muted-foreground mt-2">Management App for Owners</p>
           </div>
         </div>

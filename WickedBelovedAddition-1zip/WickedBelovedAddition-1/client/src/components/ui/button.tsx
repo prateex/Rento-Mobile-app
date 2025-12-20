@@ -30,9 +30,10 @@ const buttonVariants = cva(
       size: {
         // @replit changed sizes
         default: "min-h-9 px-4 py-2",
-        sm: "min-h-8 rounded-md px-3 text-xs",
+        // Tighten small buttons to match other UI controls
+        sm: "min-h-8 h-7 rounded-md px-2 text-xs",
         lg: "min-h-10 rounded-md px-8",
-        icon: "h-9 w-9",
+        icon: "h-7 w-7",
       },
     },
     defaultVariants: {

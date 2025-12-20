@@ -2,24 +2,55 @@ import { lazy, Suspense, useState } from "react";
 import MobileLayout from "@/components/layout/MobileLayout";
 import { useStore } from "@/lib/store";
 import { Card, CardContent } from "@/components/ui/card";
-import { Bike, Calendar, TrendingUp, Users, Plus, Scan, ArrowRight, EyeOff, CalendarDays } from "lucide-react";
+import { Bike, Calendar, TrendingUp, Plus, ArrowRight, EyeOff, CalendarDays, Car as CarIcon } from "lucide-react";
 import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import RevenueReport from "@/components/dashboard/RevenueReport";
+import { useRef, useEffect } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
 
 const InventoryCalendar = lazy(() => import("@/components/dashboard/InventoryCalendar"));
+
+const getVehicleIcon = (type?: string) => {
+  return type === 'car' ? <CarIcon size={20} className="text-[hsl(49,100%,50%)]" /> : <Bike size={20} className="text-[hsl(49,100%,50%)]" />;
+};
+
+const getVehicleLabel = (type?: string) => {
+  return type === 'car' ? 'Car' : 'Bike';
+};
 
 export default function Dashboard() {
   const { user, bikes, bookings, settings } = useStore();
   const [isRevenueReportOpen, setIsRevenueReportOpen] = useState(false);
   const [showCalendar, setShowCalendar] = useState(true);
+  const calendarRef = useRef<HTMLDivElement | null>(null);
+  const today = new Date();
+  const dayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 0, 0, 0, 0);
+  const dayEnd = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59, 999);
+  const isOnToday = (startISO: string, endISO: string) => {
+    const start = new Date(startISO);
+    const end = new Date(endISO);
+    return start <= dayEnd && end > dayStart;
+  };
+  const bookedTodayBikeIds = new Set<string>();
+  const activeTodayBikeIds = new Set<string>();
+  bookings.forEach(b => {
+    if (b.status === 'Deleted' || b.status === 'Cancelled') return;
+    if (isOnToday(b.startDate, b.endDate)) {
+      if (b.status === 'Active') {
+        b.bikeIds.forEach(id => activeTodayBikeIds.add(id));
+      } else {
+        b.bikeIds.forEach(id => bookedTodayBikeIds.add(id));
+      }
+    }
+  });
+  const maintenanceBikeIds = new Set<string>(bikes.filter(b => b.status === 'Maintenance').map(b => b.id));
   
   const stats = {
     totalBikes: bikes.length,
-    available: bikes.filter(b => b.status === 'Available').length,
+    available: Math.max(0, bikes.length - bookedTodayBikeIds.size - activeTodayBikeIds.size - maintenanceBikeIds.size),
     booked: bikes.filter(b => b.status === 'Booked').length,
     revenue: bookings.filter(b => b.status !== 'Deleted' && b.status !== 'Cancelled').reduce((acc, curr) => acc + (curr.totalAmount || 0), 0)
   };
@@ -33,17 +64,6 @@ export default function Dashboard() {
             <p className="text-muted-foreground text-sm">Welcome back, {user?.name}</p>
           </div>
           <div className="flex gap-2">
-             <Button 
-               size="icon" 
-               variant="ghost" 
-               className={cn(
-                 "rounded-full",
-                 showCalendar ? "bg-primary text-primary-foreground" : "bg-zinc-100"
-               )}
-               onClick={() => setShowCalendar(!showCalendar)}
-             >
-                <CalendarDays size={20} />
-             </Button>
              <div className="h-10 w-10 rounded-full bg-zinc-100 border border-zinc-200 flex items-center justify-center">
                <span className="font-bold text-primary-foreground text-sm">
                  {user?.name?.[0] ?? '?'}
@@ -53,13 +73,13 @@ export default function Dashboard() {
         </div>
 
         <div className="grid grid-cols-2 gap-3">
-          <Card className="bg-white border-zinc-100 shadow-sm">
+          <Card className="bg-white border-zinc-100 shadow-sm cursor-pointer hover:border-primary transition-colors" onClick={() => { window.location.href = "/bikes?status=available&date=today"; }}>
             <CardContent className="p-4 flex flex-col justify-between h-32">
               <div className="p-2 bg-zinc-100 w-fit rounded-lg">
                 <Bike size={20} className="text-[hsl(49,100%,50%)]" />
               </div>
               <div>
-                <p className="text-muted-foreground text-xs font-medium">Available Bikes</p>
+                <p className="text-muted-foreground text-xs font-medium">Available Vehicles</p>
                 <h3 className="text-2xl font-bold mt-1">{stats.available}/{stats.totalBikes}</h3>
               </div>
             </CardContent>
@@ -83,7 +103,9 @@ export default function Dashboard() {
             </CardContent>
           </Card>
 
-          <Card className="bg-white border-zinc-100 shadow-sm">
+          <Card className="bg-white border-zinc-100 shadow-sm cursor-pointer"
+            onClick={() => { window.location.href = "/bookings?filter=active"; }}
+          >
             <CardContent className="p-4 flex flex-col justify-between h-32">
               <div className="p-2 bg-zinc-100 w-fit rounded-lg">
                 <Calendar size={20} className="text-blue-600" />
@@ -95,14 +117,14 @@ export default function Dashboard() {
             </CardContent>
           </Card>
 
-          <Card className="bg-white border-zinc-100 shadow-sm">
+          <Card className="bg-white border-zinc-100 shadow-sm cursor-pointer" onClick={() => { setShowCalendar(true); setTimeout(() => { calendarRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 0); }}>
             <CardContent className="p-4 flex flex-col justify-between h-32">
               <div className="p-2 bg-zinc-100 w-fit rounded-lg">
-                <Users size={20} className="text-orange-600" />
+                <CalendarDays size={20} className="text-blue-600" />
               </div>
               <div>
-                <p className="text-muted-foreground text-xs font-medium">New Customers</p>
-                <h3 className="text-2xl font-bold mt-1">12</h3>
+                <p className="text-muted-foreground text-xs font-medium">Calendar</p>
+                <h3 className="text-sm font-medium mt-1">Open Inventory Calendar</h3>
               </div>
             </CardContent>
           </Card>
@@ -111,18 +133,16 @@ export default function Dashboard() {
         <div className="space-y-3">
           <h2 className="text-lg font-bold">Quick Actions</h2>
           <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide">
-            <Link href="/bookings?action=new">
-              <Button className="h-14 px-6 rounded-xl shadow-sm flex items-center gap-2 whitespace-nowrap">
-                <Plus size={18} /> New Booking
-              </Button>
-            </Link>
+            <Button onClick={() => { window.location.href = "/bookings?action=new"; }} className="h-14 px-6 rounded-xl shadow-sm flex items-center gap-2 whitespace-nowrap">
+              <Plus size={18} /> New Booking
+            </Button>
             <Link href="/bikes?action=new">
               <Button variant="outline" className="h-14 px-6 rounded-xl bg-white border-zinc-200 flex items-center gap-2 whitespace-nowrap hover:bg-zinc-50">
-                <Bike size={18} /> Add Bike
+                <Bike size={18} /> Add Vehicle
               </Button>
             </Link>
-            <Button variant="outline" className="h-14 px-6 rounded-xl bg-white border-zinc-200 flex items-center gap-2 whitespace-nowrap hover:bg-zinc-50">
-              <Scan size={18} /> Scan QR
+            <Button onClick={() => { window.location.href = "/customers?action=new"; }} variant="outline" className="h-14 px-6 rounded-xl bg-white border-zinc-200 flex items-center gap-2 whitespace-nowrap hover:bg-zinc-50">
+              <Plus size={18} /> Add Customer
             </Button>
           </div>
         </div>
@@ -135,7 +155,9 @@ export default function Dashboard() {
               <Skeleton className="h-[300px] w-full" />
             </div>
           }>
-            <InventoryCalendar />
+            <div ref={calendarRef}>
+              <InventoryCalendar />
+            </div>
           </Suspense>
         )}
 
@@ -159,8 +181,8 @@ export default function Dashboard() {
                       <img src={primaryBike?.image} alt={primaryBike?.name} className="h-full w-full object-cover" />
                     </div>
                     <div className="flex-1 flex flex-col justify-center">
-                      <h4 className="font-bold text-sm">
-                        {primaryBike?.name}
+                      <h4 className="font-bold text-sm flex items-center gap-1">
+                        {getVehicleIcon(primaryBike?.type)} {getVehicleLabel(primaryBike?.type)} {primaryBike?.name}
                         {bookingBikes.length > 1 && <span className="text-xs text-muted-foreground"> +{bookingBikes.length - 1} more</span>}
                       </h4>
                       <p className="text-xs text-muted-foreground">{primaryBike?.regNo}</p>
