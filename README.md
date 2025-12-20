@@ -1,2 +1,0 @@
-# Rento-Mobile-app
-RENTO APP PUSHED FROM VS CODE
