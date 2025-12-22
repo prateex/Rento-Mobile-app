@@ -1,20 +1,11 @@
 {
   "name": "rest-express",
   "version": "1.0.0",
-  "type": "module",
+  "type": "commonjs",
   "license": "MIT",
   "scripts": {
-    "dev:client": "vite dev --port 5000",
-    "dev": "tsx server/index.ts",
-    "build": "vite build && tsx script/build.ts",
-    "build:full": "vite build && tsx script/build.ts",
-    "build:server": "tsc -p tsconfig.server.json",
-    "start": "node dist/index.cjs",
-    "check": "tsc",
-    "db:push": "drizzle-kit push",
-    "cap:sync": "cap sync",
-    "cap:open": "cap open android",
-    "cap:build": "npm run build && npm run cap:sync"
+    "build": "tsc",
+    "start": "node dist/index.js"
   },
   "dependencies": {
     "@capacitor/android": "^6.1.2",

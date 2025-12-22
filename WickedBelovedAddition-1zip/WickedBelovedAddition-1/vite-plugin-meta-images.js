@@ -1,10 +1,16 @@
-import fs from 'fs';
-import path from 'path';
+"use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.metaImagesPlugin = metaImagesPlugin;
+const fs_1 = __importDefault(require("fs"));
+const path_1 = __importDefault(require("path"));
 /**
  * Vite plugin that updates og:image and twitter:image meta tags
  * to point to the app's opengraph image with the correct Replit domain.
  */
-export function metaImagesPlugin() {
+function metaImagesPlugin() {
     return {
         name: 'vite-plugin-meta-images',
         transformIndexHtml(html) {
@@ -14,18 +20,18 @@ export function metaImagesPlugin() {
                 return html;
             }
             // Check if opengraph image exists in public directory
-            const publicDir = path.resolve(process.cwd(), 'client', 'public');
-            const opengraphPngPath = path.join(publicDir, 'opengraph.png');
-            const opengraphJpgPath = path.join(publicDir, 'opengraph.jpg');
-            const opengraphJpegPath = path.join(publicDir, 'opengraph.jpeg');
+            const publicDir = path_1.default.resolve(process.cwd(), 'client', 'public');
+            const opengraphPngPath = path_1.default.join(publicDir, 'opengraph.png');
+            const opengraphJpgPath = path_1.default.join(publicDir, 'opengraph.jpg');
+            const opengraphJpegPath = path_1.default.join(publicDir, 'opengraph.jpeg');
             let imageExt = null;
-            if (fs.existsSync(opengraphPngPath)) {
+            if (fs_1.default.existsSync(opengraphPngPath)) {
                 imageExt = 'png';
             }
-            else if (fs.existsSync(opengraphJpgPath)) {
+            else if (fs_1.default.existsSync(opengraphJpgPath)) {
                 imageExt = 'jpg';
             }
-            else if (fs.existsSync(opengraphJpegPath)) {
+            else if (fs_1.default.existsSync(opengraphJpegPath)) {
                 imageExt = 'jpeg';
             }
             if (!imageExt) {
@@ -58,4 +64,3 @@ function log(...args) {
         console.log(...args);
     }
 }
-//# sourceMappingURL=vite-plugin-meta-images.js.map

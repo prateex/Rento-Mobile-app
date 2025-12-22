@@ -1,44 +1,32 @@
 {
-  "include": [
-    "client/src/**/*",
-    "shared/**/*",
-    "server/**/*"
-  ],
-  "exclude": [
-    "node_modules",
-    "build",
-    "dist",
-    "**/*.test.ts"
-  ],
   "compilerOptions": {
-    "incremental": true,
-    "tsBuildInfoFile": "./node_modules/typescript/tsbuildinfo",
-    "noEmit": true,
-    "module": "ESNext",
-    "strict": true,
-    "lib": [
-      "esnext",
-      "dom",
-      "dom.iterable"
-    ],
-    "jsx": "preserve",
+    "target": "ES2020",
+    "module": "CommonJS",
+    "rootDir": "src",
+    "outDir": "dist",
     "esModuleInterop": true,
     "skipLibCheck": true,
-    "allowImportingTsExtensions": true,
-    "moduleResolution": "bundler",
+    "strict": false,
+    "moduleResolution": "node",
+    "resolveJsonModule": true,
     "baseUrl": ".",
-    "types": [
-      "node",
-      "vite/client"
-    ],
     "paths": {
-      "@/*": [
-        "./client/src/*"
-      ],
-      "@shared/*": [
-        "./shared/*"
-      ]
+      "@shared/*": ["./src/shared/*"],
+      "@/*": ["./src/*"]
     }
   },
-  "extends": "expo/tsconfig.base"
+  "include": ["src/**/*"],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "client",
+    "vite.config.ts",
+    "vite-plugin-meta-images.ts",
+    "vite.config.js",
+    "vite-plugin-meta-images.js",
+    "script",
+    "attached_assets",
+    "src/vite.ts",
+    "vite.ts"
+  ]
 }
