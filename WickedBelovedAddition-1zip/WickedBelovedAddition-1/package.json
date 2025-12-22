@@ -6,10 +6,10 @@
   "scripts": {
     "dev:client": "vite dev --port 5000",
     "dev": "tsx server/index.ts",
-    "build": "tsc -p tsconfig.server.json",
-    "build:full": "npm run build && vite build",
+    "build": "vite build && tsx script/build.ts",
+    "build:full": "vite build && tsx script/build.ts",
     "build:server": "tsc -p tsconfig.server.json",
-    "start": "node dist/index.js",
+    "start": "node dist/index.cjs",
     "check": "tsc",
     "db:push": "drizzle-kit push",
     "cap:sync": "cap sync",

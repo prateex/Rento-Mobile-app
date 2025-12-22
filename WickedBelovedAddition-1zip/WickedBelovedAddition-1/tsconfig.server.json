@@ -1,16 +1,25 @@
 {
-  "extends": "./tsconfig.json",
   "compilerOptions": {
     "outDir": "./dist",
-    "rootDir": "./server",
     "noEmit": false,
-    "module": "commonjs",
+    "module": "es2020",
+    "moduleResolution": "node",
     "target": "ES2020",
     "lib": ["ES2020"],
     "declaration": true,
     "declarationMap": true,
-    "sourceMap": true
+    "sourceMap": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "strict": false,
+    "resolveJsonModule": true,
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./client/src/*"],
+      "@shared/*": ["./shared/*"],
+      "@assets/*": ["./attached_assets/*"]
+    }
   },
-  "include": ["server/**/*"],
-  "exclude": ["node_modules", "dist", "**/*.test.ts"]
+  "include": ["server/**/*", "shared/**/*"],
+  "exclude": ["node_modules", "dist", "**/*.test.ts", "client", "vite.config.ts"]
 }
