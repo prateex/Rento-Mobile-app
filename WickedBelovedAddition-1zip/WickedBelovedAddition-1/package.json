@@ -4,7 +4,7 @@
   "type": "commonjs",
   "license": "MIT",
   "scripts": {
-    "build": "tsc",
+    "build": "vite build && tsc && node -e \"const fs = require('fs'); const path = require('path'); const pubDir = path.join(__dirname, 'dist/public'); if (!fs.existsSync(pubDir)) fs.mkdirSync(pubDir, {recursive: true}); const distDir = path.join(__dirname, 'dist'); fs.readdirSync(distDir).forEach(file => { const src = path.join(distDir, file); if (file !== 'public' && file !== 'index.js' && file !== 'routes.js' && file !== 'static.js' && file !== 'storage.js' && file !== 'vite.js') { const dest = path.join(pubDir, file); if (fs.statSync(src).isDirectory()) { if (fs.existsSync(dest)) fs.rmSync(dest, {recursive: true}); fs.renameSync(src, dest); } else { fs.renameSync(src, dest); } } })\"",
     "start": "node dist/index.js"
   },
   "dependencies": {

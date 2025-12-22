@@ -2,26 +2,24 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import path from "path";
-import runtimeErrorOverlay from "@replit/vite-plugin-runtime-error-modal";
 import { metaImagesPlugin } from "./vite-plugin-meta-images";
+
+// Only load replit plugins if not in production
+const devPlugins: any[] = [];
+if (process.env.NODE_ENV !== "production") {
+  try {
+    devPlugins.push(require("@replit/vite-plugin-runtime-error-modal").default);
+  } catch {
+    // Plugin not available
+  }
+}
 
 export default defineConfig({
   plugins: [
     react(),
-    runtimeErrorOverlay(),
     tailwindcss(),
     metaImagesPlugin(),
-    ...(process.env.NODE_ENV !== "production" &&
-    process.env.REPL_ID !== undefined
-      ? [
-          await import("@replit/vite-plugin-cartographer").then((m) =>
-            m.cartographer(),
-          ),
-          await import("@replit/vite-plugin-dev-banner").then((m) =>
-            m.devBanner(),
-          ),
-        ]
-      : []),
+    ...devPlugins,
   ],
   resolve: {
     alias: {
