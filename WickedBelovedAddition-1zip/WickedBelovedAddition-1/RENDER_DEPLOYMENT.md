@@ -1,100 +1,96 @@
-# Rento Mobile App - Render Deployment Instructions
+# Rento Backend - Render Deployment Guide
 
-## Repository Structure
+## Environment Variables
 
-```
-Rento-App-03/
-├── backend/              ← Deploy this directory on Render
-│   ├── server/          ← Backend TypeScript code
-│   ├── client/          ← Frontend React code
-│   ├── package.json     ← Dependencies and scripts
-│   └── ...
-└── Rento-App-02zip/     ← Original nested structure (legacy)
-```
+Set these in Render Dashboard → Environment:
 
-## Render Deployment Steps
-
-### 1. Create Web Service on Render
-
-- Go to [Render Dashboard](https://dashboard.render.com/)
-- Click **"New +"** → **"Web Service"**
-- Connect your GitHub repository: `prateex/Rento-Mobile-app`
-
-### 2. Configure Build Settings
-
-| Setting | Value |
-|---------|-------|
-| **Name** | `rento-backend` (or your choice) |
-| **Root Directory** | `backend` |
-| **Environment** | `Node` |
-| **Build Command** | `npm install && npm run build:full` |
-| **Start Command** | `npm run start` |
-| **Plan** | Free |
-
-### 3. Set Environment Variables
-
-In Render Dashboard → Environment tab:
-
-```
+```bash
+# Required
 NODE_ENV=production
-ALLOWED_ORIGINS=capacitor://localhost,https://localhost
+PORT=10000  # Render assigns this automatically
+
+# Optional - CORS configuration
+ALLOWED_ORIGINS=https://your-frontend-domain.com,capacitor://localhost
+
+# Optional - for future database/auth integration
+# DATABASE_URL=postgresql://user:password@host:5432/database
+# SESSION_SECRET=your-secure-random-string-here
+# RENDER_EXTERNAL_HOSTNAME=your-app.onrender.com  # Set by Render automatically
 ```
 
-### 4. Deploy
+## Render Configuration
 
-- Click **"Create Web Service"**
-- Wait 3-5 minutes for build and deployment
-- Your backend URL: `https://rento-backend.onrender.com`
+**Start Command:**
+```bash
+npm run start
+```
 
-## What Gets Deployed
+**Build Command:**
+```bash
+npm install && npm run build:full
+```
 
-- ✅ Express backend API (`/api/*` routes)
-- ✅ React frontend (served from `/`)
-- ✅ Static assets
-- ✅ CORS configured for mobile app
+**Instance Type:** Web Service (Node.js)
 
-## Connect Android App
+**Health Check Path:** `/` (serves the React app)
 
-Update your Capacitor config to point to the Render URL:
+## API Base URL for Mobile App
 
+After deployment, your backend will be accessible at:
+
+```
+https://your-app-name.onrender.com
+```
+
+### Update Mobile App Configuration
+
+In your Capacitor app, use the production URL for API calls:
+
+**Example (capacitor.config.ts):**
 ```typescript
-// capacitor.config.ts
 server: {
-  url: 'https://rento-backend.onrender.com',
-  androidScheme: 'https',
+  url: process.env.NODE_ENV === 'production' 
+    ? 'https://your-app-name.onrender.com'
+    : 'http://localhost:3000',
   cleartext: true
 }
 ```
 
-## Local Testing
-
-```bash
-cd backend
-npm install
-npm run build:full
-npm run start
+**Or in your API client:**
+```typescript
+const API_BASE_URL = process.env.NODE_ENV === 'production'
+  ? 'https://your-app-name.onrender.com/api'
+  : 'http://localhost:3000/api';
 ```
 
-Visit: `http://localhost:3000`
+## Deployment Steps
 
-## Troubleshooting
+1. Push code to GitHub repository
+2. Create new Web Service in Render
+3. Connect your GitHub repository
+4. Set environment variables in Render dashboard
+5. Deploy
 
-### Build fails
-- Check that `Root Directory` is set to `backend`
-- Verify build logs in Render dashboard
+## Verification
 
-### App doesn't start
-- Ensure environment variables are set
-- Check start logs for port binding
+After deployment, test the API:
 
-### Mobile app can't connect
-- Verify backend URL in Capacitor config
-- Check CORS settings in environment variables
+```bash
+curl https://your-app-name.onrender.com/api/health
+```
 
-## Technical Details
+The mobile app should connect via HTTPS automatically.
 
-- **Server Entry:** `server/index.ts` (TypeScript)
-- **Compiled to:** `dist/index.cjs` (CommonJS)
-- **Port:** `process.env.PORT` (Render assigns automatically)
-- **Host:** `0.0.0.0` in production
-- **Frontend Build:** Vite bundles React to `dist/`
+## CORS Configuration
+
+- **Development:** Allows localhost origins and Capacitor WebView
+- **Production:** Allows all origins by default (mobile-first)
+- **Custom Origins:** Set `ALLOWED_ORIGINS` env var with comma-separated domains
+
+## Notes
+
+- Server binds to `0.0.0.0:PORT` in production (required by Render)
+- Static React build served at root `/`
+- API routes under `/api/*`
+- Trust proxy enabled for secure cookies behind HTTPS
+- Cold start latency: ~30s for free tier

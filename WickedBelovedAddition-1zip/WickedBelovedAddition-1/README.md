@@ -1,69 +1,83 @@
-# Rento Bike Rental Management App
+# Bike Rental Management App (MVP)
 
-A complete bike rental management system with Express backend and React frontend, deployed as an Android mobile app.
+This is a high-fidelity **Web Mockup** of the Bike Rental Management Mobile App. 
+It is built using **React + Vite + Tailwind CSS** to simulate the mobile experience directly in the browser.
 
-## Project Structure
+## 📱 Project Overview
+A complete management dashboard for Bike Rental Shop owners to manage:
+- **Bikes**: Track availability, status, photos, opening KM, and damages.
+- **Customers**: KYC verification and history.
+- **Bookings**: Create and manage rentals with date/time, separate rent/deposit, and inline customer creation.
+- **Payments**: Track revenue and payment status.
+- **Settings**: Toggle dashboard revenue visibility.
 
-- **`/backend`** - Main application (Deploy this on Render)
-  - Backend API (Express + TypeScript)
-  - Frontend (React + Vite)
-  - Database schema (Drizzle ORM)
-  - Android wrapper (Capacitor)
+## 🎨 Design System
+- **Primary Color**: Yellow (`#FFD200`)
+- **Background**: White (`#FFFFFF`)
+- **Typography**: DM Sans (Headings) + Inter (Body)
+- **Styling**: Tailwind CSS with custom Mobile-First layout.
 
-- **`/Rento-App-02zip`** - Original development structure (legacy)
+## 🚀 How to Run
+1. **Install Dependencies**:
+   ```bash
+   npm install
+   ```
+2. **Start Development Server**:
+   ```bash
+   npm run dev
+   ```
+3. **Open in Browser**:
+   The app runs on port 5000. Open the webview to see the mobile simulation.
 
-## Quick Start
+## 📱 Mobile Simulation
+This project uses a `MobileLayout` component to restrict the view to a mobile viewport (`max-w-md`) on desktop screens, providing a realistic app-like experience.
 
-### Deploy Backend on Render
+## 🛠 Tech Stack
+- **Frontend**: React, Wouter (Routing), Zustand (State Management)
+- **UI Library**: Radix UI + Tailwind CSS (Shadcn-like components)
+- **Icons**: Lucide React
+- **Forms**: React Hook Form
+- **Date Handling**: date-fns
 
-See [RENDER_DEPLOYMENT.md](./RENDER_DEPLOYMENT.md) for complete instructions.
-
-**TL;DR:**
+## 📂 Folder Structure
 ```
-Root Directory: backend
-Build Command: npm install && npm run build:full
-Start Command: npm run start
+client/
+├── src/
+│   ├── components/
+│   │   ├── layout/       # MobileLayout, BottomNav
+│   │   ├── ui/           # Reusable UI components (Button, Card, Input)
+│   ├── pages/            # App Screens (Dashboard, Bikes, Bookings)
+│   ├── lib/
+│   │   ├── store.ts      # Global State (Zustand) & Mock Data
+│   │   ├── utils.ts      # Helper functions
+│   ├── App.tsx           # Main Routing
 ```
 
-### Build Android APK
+## 🔄 Porting to Expo (React Native)
+To convert this web mockup to a real Native App:
+1. Initialize a new Expo project: `npx create-expo-app bike-rental`
+2. Copy the state logic from `store.ts`.
+3. Replace HTML tags (`div`, `span`) with React Native components (`View`, `Text`).
+4. Replace `lucide-react` with `@expo/vector-icons`.
+5. Use `NativeWind` for Tailwind styling in React Native.
 
-```bash
-cd backend
-npm install
-npm run build:full
-npm run cap:sync
-npm run cap:open
-```
+## 🔐 Demo Credentials
+- **Admin Phone**: `9999999999` (OTP: `1234`) - Full access (Delete bookings, etc.)
+- **Staff Phone**: `8888888888` (OTP: `1234`) - Limited access
 
-Then in Android Studio: Build → Build APK(s)
+## ✨ New Features (v2)
+- **Edit Bookings**: Change dates, bike, rent/deposit with overlap protection.
+- **Detailed Bike Management**: Multiple photos, opening KM, KM driven, damage reporting.
+- **Enhanced Bookings**: Date & Time picker, Rent vs Deposit split, Add Customer inline.
+- **Admin Controls**: Delete bookings (Admin only), Hide Dashboard Revenue (Settings).
 
-## Features
-
-- 📱 Mobile-first design
-- 🚴 Bike inventory management
-- 📅 Booking calendar with availability tracking
-- 💰 Revenue dashboard
-- 📷 Damage documentation with photos
-- 📲 WhatsApp integration for customer communication
-- 💳 Invoice generation
-
-## Tech Stack
-
-- **Backend:** Node.js, Express, TypeScript
-- **Frontend:** React, TanStack Query, Zustand
-- **UI:** shadcn/ui, Tailwind CSS
-- **Mobile:** Capacitor
-- **Database:** PostgreSQL (via Drizzle ORM)
-- **Deployment:** Render (Backend), APK (Android)
-
-## Documentation
-
-- [RENDER_DEPLOYMENT.md](./RENDER_DEPLOYMENT.md) - Render deployment guide
-- [backend/APK_BUILD_REQUIREMENTS.md](./backend/APK_BUILD_REQUIREMENTS.md) - Android build setup
-- [backend/CAPACITOR_SETUP.md](./backend/CAPACITOR_SETUP.md) - Capacitor configuration
-- [CHANGE_LOG.md](./CHANGE_LOG.md) - Project change history
-- [IMPLEMENTATION_SUMMARY.md](./IMPLEMENTATION_SUMMARY.md) - Implementation details
-
-## License
-
-MIT
+## 🚀 Feature Requests (v3 - Latest)
+- **Inventory Calendar**: Dashboard calendar view showing availability heat map.
+- **Revenue Reports**: Interactive revenue card with details and CSV export mock.
+- **Staff Management**: Add Staff modal with invite flow.
+- **Communication**: Call and WhatsApp buttons for customers.
+- **Invoice**: Generate and download PDF invoices for bookings.
+- **Multi-Bike Booking**: Select multiple bikes for a single booking.
+- **Return Bike Flow**: Action to mark bike as returned and complete booking.
+- **Filters**: Advanced filtering on Bookings tab.
+- **Enhanced Customer Profile**: View/Edit customer details with ID photos.
