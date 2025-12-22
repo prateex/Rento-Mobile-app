@@ -1,28 +1,10 @@
 # Rento Backend - Render Deployment Guide
 
-## Environment Variables
-
-Set these in Render Dashboard → Environment:
-
-```bash
-# Required
-NODE_ENV=production
-PORT=10000  # Render assigns this automatically
-
-# Optional - CORS configuration
-ALLOWED_ORIGINS=https://your-frontend-domain.com,capacitor://localhost
-
-# Optional - for future database/auth integration
-# DATABASE_URL=postgresql://user:password@host:5432/database
-# SESSION_SECRET=your-secure-random-string-here
-# RENDER_EXTERNAL_HOSTNAME=your-app.onrender.com  # Set by Render automatically
-```
-
 ## Render Configuration
 
-**Start Command:**
-```bash
-npm run start
+**Root Directory:**
+```
+WickedBelovedAddition-1zip/WickedBelovedAddition-1
 ```
 
 **Build Command:**
@@ -30,9 +12,30 @@ npm run start
 npm install && npm run build:full
 ```
 
+**Start Command:**
+```bash
+npm run start
+```
+
 **Instance Type:** Web Service (Node.js)
 
 **Health Check Path:** `/` (serves the React app)
+
+## Environment Variables
+
+Set these in Render Dashboard → Environment:
+
+```bash
+# Required
+NODE_ENV=production
+
+# Optional - CORS configuration
+ALLOWED_ORIGINS=capacitor://localhost,https://localhost
+
+# Optional - for future database/auth integration
+# DATABASE_URL=postgresql://user:password@host:5432/database
+# SESSION_SECRET=your-secure-random-string-here
+```
 
 ## API Base URL for Mobile App
 
