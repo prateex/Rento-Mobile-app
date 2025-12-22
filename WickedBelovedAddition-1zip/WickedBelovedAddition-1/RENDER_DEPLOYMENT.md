@@ -9,7 +9,7 @@ WickedBelovedAddition-1zip/WickedBelovedAddition-1
 
 **Build Command:**
 ```bash
-npm install && npm run build:full
+npm install && npm run build
 ```
 
 **Start Command:**
@@ -93,7 +93,9 @@ The mobile app should connect via HTTPS automatically.
 ## Notes
 
 - Server binds to `0.0.0.0:PORT` in production (required by Render)
+- TypeScript compiled to CommonJS (`dist/index.js`)
 - Static React build served at root `/`
 - API routes under `/api/*`
+- Build tool: TypeScript compiler (tsc)
 - Trust proxy enabled for secure cookies behind HTTPS
 - Cold start latency: ~30s for free tier
