@@ -39,20 +39,33 @@ declare module "http" {
 // CORS configuration for mobile app and web access
 const allowedOrigins = process.env.NODE_ENV === 'production'
   ? (process.env.ALLOWED_ORIGINS || '').split(',').filter(Boolean)
-  : ['http://localhost:5000', 'http://localhost:3000', 'capacitor://localhost', 'https://localhost'];
+  : ['http://localhost:5000', 'http://localhost:3000', 'http://127.0.0.1:5000', 'http://127.0.0.1:3000', 'capacitor://localhost', 'https://localhost'];
 
 app.use(cors({
   origin: (origin, callback) => {
     // Allow requests with no origin (mobile apps, Postman, etc.)
     if (!origin) return callback(null, true);
-    if (allowedOrigins.some(allowed => origin.startsWith(allowed) || allowed === '*')) {
-      return callback(null, true);
+    
+    // In production, check against allowed origins
+    if (process.env.NODE_ENV === 'production') {
+      if (allowedOrigins.length === 0) {
+        // No origins configured - allow all (not recommended for production)
+        console.warn('⚠️  ALLOWED_ORIGINS not set - allowing all origins');
+        return callback(null, true);
+      }
+      if (allowedOrigins.some(allowed => origin === allowed || origin.startsWith(allowed))) {
+        return callback(null, true);
+      }
+      console.warn(`⚠️  Blocked request from unauthorized origin: ${origin}`);
+      return callback(new Error('Not allowed by CORS'));
     }
-    return callback(null, true); // Allow all for mobile WebView compatibility
+    
+    // In development, allow all
+    return callback(null, true);
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'x-device-id']
 }));
 
 app.use(
@@ -140,30 +153,21 @@ async function startup() {
     });
     console.log('✅ Error handler registered');
 
-    // API-only mode: skip static/vite for backend testing
-    if (process.env.API_ONLY === 'true') {
-      log('API_ONLY mode enabled: skipping static/Vite setup');
+    // PRODUCTION: API-only mode (no frontend serving)
+    // Frontend is deployed separately as static site
+    if (process.env.NODE_ENV === "production") {
+      log('✅ Production mode: API-only backend');
+      log('Frontend should be deployed separately as static site');
     } else {
-      // Setup Vite or static files based on environment
-      if (process.env.NODE_ENV === "production") {
-        try {
-          console.log('Setting up static file serving...');
-          serveStatic(app);
-          console.log('✅ Static file serving ready');
-        } catch (err) {
-          console.warn('Static file serving setup warning:', err);
-          // Continue - API still works without static files
-        }
-      } else {
-        try {
-          console.log('Setting up Vite dev server...');
-          const { setupVite } = await import("./vite");
-          await setupVite(httpServer, app);
-          console.log('✅ Vite dev server ready');
-        } catch (err) {
-          console.warn('Vite setup warning (API will still work):', err);
-          // Continue - API still works without Vite
-        }
+      // DEVELOPMENT: Serve frontend with Vite dev server
+      try {
+        console.log('Setting up Vite dev server...');
+        const { setupVite } = await import("./vite");
+        await setupVite(httpServer, app);
+        console.log('✅ Vite dev server ready');
+      } catch (err) {
+        console.warn('Vite setup warning (API will still work):', err);
+        // Continue - API still works without Vite
       }
     }
 

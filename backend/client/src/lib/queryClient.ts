@@ -1,5 +1,6 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
 import { useStore } from "./store";
+import { apiUrl } from "./api";
 
 async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
@@ -19,7 +20,7 @@ export async function apiRequest(
   if (authToken) headers["Authorization"] = `Bearer ${authToken}`;
   const did = deviceId || getDeviceId?.();
   if (did) headers["x-device-id"] = did;
-  const res = await fetch(url, {
+  const res = await fetch(apiUrl(url), {
     method,
     headers,
     body: data ? JSON.stringify(data) : undefined,
@@ -41,7 +42,7 @@ export const getQueryFn: <T>(options: {
     if (authToken) headers["Authorization"] = `Bearer ${authToken}`;
     const did = deviceId || getDeviceId?.();
     if (did) headers["x-device-id"] = did;
-    const res = await fetch(queryKey.join("/") as string, {
+    const res = await fetch(apiUrl(queryKey.join("/") as string), {
       headers,
       credentials: "include",
     });
