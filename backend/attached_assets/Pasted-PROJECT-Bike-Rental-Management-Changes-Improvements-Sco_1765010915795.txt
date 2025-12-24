@@ -1,0 +1,108 @@
+PROJECT: Bike Rental Management — Changes & Improvements
+
+Scope:
+Implement the following changes across the Expo/React (client) app and the backend (Firebase or Node server whichever is in the project). Make UI/UX consistent with existing yellow/white/black theme. Add server-side checks where needed, and include unit tests and a short QA checklist. Update README with instructions to run tests and seed data changes.
+
+HIGH-LEVEL REQUIREMENTS
+- Keep existing folder structure. Make minimal, well-documented changes.
+- Add/modify components/screens: Bikes list, Bike Edit modal/screen, Add Bike form, Bookings list/detail, New Booking modal/screen, Customer modal, Home/Dashboard.
+- Update data model (both client types and backend DB schema) to include: bike.photos (array), bike.openingKm (number), bike.kmDriven (number), bike.damages (array of {id, date, photoUrl, notes, severity}), booking.rent (number), booking.deposit (number), booking.startTime/endTime (timestamps).
+- Authorisation: only Admin role can delete bookings; UI should hide delete action for non-admins; backend must validate.
+- Images: use Firebase Storage or server endpoint to upload and return URL. Client should show upload progress, thumbnail preview, and compress images before upload (resize to max 1024px).
+- All new forms must validate and show inline error messages.
+
+IMPLEMENTATION DETAILS (map to numbered items)
+
+1) EDIT BOOKING
+- On Bookings list and Booking detail, add an "Edit" action/button that opens a Booking Edit screen/modal.
+- Booking Edit must allow changing start time, end time, rent, deposit, notes, and assigned bike/customer.
+- When changing bike/time, enforce overlap check on the backend: same bike cannot have overlapping active bookings.
+- When a booking is edited, write an "edit history" entry into booking.history with {byUserId, timestamp, changes}.
+
+2) BIKE PHOTOS + EDIT + KM ALREADY DRIVEN
+- Update Add Bike form: allow multiple photo uploads (max 6), choose from camera or gallery.
+- Add "Opening KM" numeric input when creating a bike. Save as bike.openingKm.
+- After creating a bike, allow editing bike details including photos (add/remove), openingKm, and a separate field "KM already driven" which updates bike.kmDriven.
+- Implement photo gallery carousel on Bike Detail and show thumbnails in Bikes list.
+
+3) HIDE TOTAL REVENUE ON HOME
+- Home/Dashboard: Add a toggle in Settings called "Show revenue on dashboard" (default: true).
+- If disabled, hide revenue card and replace with "Revenue hidden" placeholder. Store preference in shop settings in DB.
+
+4) FIX ADD BIKE BUTTON (Home)
+- Make top-right Add Bike + button active on Home and Bikes screens (open Add Bike modal).
+- Add visual press state and small animation.
+- Ensure button is accessible and large enough for mobile tap (min 44x44).
+
+5) ADD NEW CUSTOMER FROM BOOKING FLOW
+- In New Booking customer selector, add "Add new customer" option that opens a small AddCustomer modal inline (name, phone, Aadhaar image, DL image, notes).
+- After adding, auto-select the newly created customer for the booking.
+
+6) DAMAGE PHOTOS & DAMAGE LIST
+- In Bike Edit screen, add "Damages" section:
+  - Button: "Report Damage" -> opens modal to add damage: date (default today), photo(s), notes, severity (minor/major).
+  - Save damage into bike.damages array (each entry has id, createdBy, createdAt, photoUrls, notes, severity).
+  - Damage list should be viewable on Bike Detail with thumbnails and ability to view full-size photo; allow Admin to mark damage resolved (flag resolvedAt, resolvedBy, resolutionNotes).
+- Show damage badge on bike card if damages exist (e.g., "1 damage"), and list counts on Bike Detail.
+
+7) OPENING KM (repeat / clarity)
+- Ensure Add Bike includes "Opening KM" (same as #2). If bike.kmDriven is present, show last update timestamp.
+
+8) RENT AND DEPOSIT SEPARATELY IN BOOKING
+- Booking Create/Edit forms: separate numeric inputs `rent` and `deposit`. Auto-calc total = rent + deposit but allow manual override if needed (with warning).
+- Store rent and deposit distinctly in DB and show separately in booking lists and receipts.
+
+9) TIME PICKER FOR BOOKINGS
+- Replace date-only pickers with date + time pickers for start and end (e.g., show timezone aware ISO timestamps).
+- UI: friendly time picker (hh:mm AM/PM) and validate end > start.
+- Backend must store startTime and endTime as timestamps.
+
+10) DELETE BOOKING WITH ADMIN PERMISSION
+- Add Delete button in Booking detail. Visible only for Admins.
+- Backend endpoint must verify user's role is admin before deleting.
+- Deleting booking sets booking.status = 'deleted' and preserves record for audit; require confirmation modal and password re-auth or OTP if possible (implement simple password confirmation for now).
+- Add audit log entry for deletions.
+
+ADDITIONAL SUGGESTED IMPROVEMENTS (apply where easy)
+- Add skeleton loaders for lists and image placeholders while loading.
+- Add optimistic UI updates when saving small edits with rollback on failure.
+- Compress and resize images on client before upload to speed uploads and reduce storage.
+- Add "before" and "after" photos schema to bookings (if not already present) for damage tracking.
+- Add unit tests for booking overlap detection and admin-delete restriction.
+- Add one E2E test: create customer -> add bike -> create booking (with time) -> edit booking -> delete booking as admin.
+
+DATA MODEL EXAMPLE (types)
+- Bike: { id, name, regNo, modelYear, fuelType, openingKm:number, kmDriven:number, pricePerDay:number, status, photos: string[], docs: string[], damages: Damage[] }
+- Damage: { id, createdBy, createdAt, photoUrls: string[], notes: string, severity:'minor'|'major', resolvedAt?:timestamp, resolvedBy?:id, resolutionNotes?:string }
+- Booking: { id, bikeId, customerId, startTime:timestamp, endTime:timestamp, rent:number, deposit:number, total:number, status, photosBefore:string[], photosAfter:string[], history:[] }
+- Settings: { showRevenueOnDashboard: boolean, ... }
+
+BACKEND CHANGES
+- Add endpoints or Firebase rules for:
+  - POST /bookings/:id/edit -> validates overlap and permissions, writes to booking.history
+  - POST /bookings/:id/delete -> checks admin role, sets status='deleted', writes audit log
+  - PATCH /bikes/:id -> allow photos add/remove, add damage entries
+  - POST /bikes/:id/damages -> create damage entry with image uploads
+  - POST /customers -> create customer and return ID
+
+TESTS / QA
+- Unit tests for booking overlap function with conflicting time windows.
+- Integration test for booking create/edit/delete flow.
+- Manual QA checklist: create bike (with photos + openingKm), create customer, create booking with times, edit booking times and bike, verify overlap prevented, delete booking as admin, verify audit log.
+
+DELIVERABLES
+- Updated client code (screens/components) with clear comments.
+- Updated server code / firebase rules.
+- README updates for any env variables and how to seed sample data (including sample admin user).
+- Short demo script to run: steps to demonstrate all new features.
+
+Acceptance criteria:
+- Add/Edit Bike with photos + openingKm works.
+- Damages list/report works and is visible on Bike Detail.
+- New Booking allows adding new customer inline and uses date+time.
+- Booking edit works and prevents overlap.
+- Rent/deposit stored separately and displayed separately.
+- Delete booking requires admin and sets status='deleted' (audit recorded).
+- Home revenue can be toggled off via Settings.
+
+If you need me to implement the above, I can review the generated PR or code changes and provide exact code fixes and tests. 

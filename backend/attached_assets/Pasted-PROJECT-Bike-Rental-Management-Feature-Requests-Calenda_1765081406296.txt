@@ -1,0 +1,174 @@
+PROJECT: Bike Rental Management — Feature Requests (Calendar, Reports, Calls/WhatsApp, Booking UX & Customer KYC)
+
+SUMMARY:
+Implement the following 18 changes across the Expo/React (client) app and backend (Firebase preferred; if Node server, implement equivalent endpoints). Keep existing folder structure and the yellow/white/black brand. Provide unit tests for core logic (booking availability/return/overlap) and update README with any new env variables. All UI must be mobile-friendly with accessible tap targets (>=44x44) and inline validation.
+
+CHANGES TO IMPLEMENT (numbered to match request):
+
+1) HOME TAB — INVENTORY CALENDAR
+- Add a Calendar icon/button in Home header.
+- Calendar view: month view showing per-day counts of booked bikes vs total inventory (like hotel room view).
+- On calendar day tap: show a modal/list of bikes already booked that day and bikes available that day.
+- Add a "Filter by date" toggle/dropdown on Bikes list to filter bikes available on the selected date.
+- Backend: API / function that returns bookings aggregated by bike and date range; or Firestore query optimized for date range.
+
+2) HOME TAB — REVENUE BUTTON ACTIVE & REPORTS
+- Make Revenue card/button on Home interactive.
+- On tap, open Revenue screen showing:
+  - Daily collection (list & chart)
+  - Monthly summary (month totals & month-over-month %)
+  - Date-range selector to see sales by date (start/end)
+  - Table: date, bookings count, rent total, deposit total, net collected
+- Provide CSV export for selected date range.
+- Backend: endpoint to return aggregated revenue by day/month.
+
+3) STAFF MEMBER ADD BUTTON
+- Fix enabling of "Add Staff" button in Settings or Staff screen (ensure it opens AddStaff modal).
+- Add form fields: name, phone, role (staff/admin toggle), email (optional), password auto-generation option.
+- On create, send invite SMS/notice (if SMS service configured) or show copyable credentials.
+
+4) BOOKING ROW — CALL ICON & PHONE NUMBER
+- On Bookings list and Booking detail, show customer phone number and a phone icon.
+- Tapping phone icon should use `Linking.openURL('tel:+91999...')` to open device dialer.
+
+5) BOOKING ROW — WHATSAPP ICON
+- Add WhatsApp icon next to phone that opens WhatsApp chat with customer: `Linking.openURL('https://wa.me/<number>?text=<pre-filled-message>')`.
+- Pre-filled message: "Hello <CustomerName>, regarding your booking #<bookingId> on <date>."
+
+6) BOOKING — BIKE RETURN ACTION
+- Add "Mark as Returned" / "Return Bike" button on booking detail and list item action menu.
+- When returned:
+  - Set booking.status = 'completed' or 'returned' and set returnedAt timestamp.
+  - Trigger available calculation: set bike.status = 'available' for that date range (respect future bookings).
+  - If there is a future booking (startTime > now), keep bike unavailable for those future bookings but show it available between returnedAt and next booking start.
+- Backend: function to reconcile bike availability after return and to compute date ranges.
+
+7) ADD BIKE — ADD PREVIOUS DAMAGES
+- In Add Bike form add "Previous Damages" section to upload 0..n damage photos with notes and date.
+- Save as bike.damages array (id, date, photoUrl, notes, severity).
+- Display these damages on Bike Detail and in Bike Edit.
+
+8) BOOKINGS TAB — FILTERS
+- Add filters UI to Bookings tab:
+  - Date range
+  - Paid (fully paid)
+  - Unpaid / Partial
+  - Continued (multi-day / ongoing) or status filters (booked, active, completed, overdue)
+- Allow combining filters and clearing them quickly.
+
+9) CUSTOMERS TAB — CALL BUTTON
+- Add call icon in Customers list and customer detail that triggers device dialer (`tel:` link).
+
+10) CUSTOMERS TAB — VIEW & EDIT CUSTOMER
+- Add View button on each customer row to open Customer Detail screen showing:
+  - Name, phone, email
+  - Date added
+  - Last updated
+  - Uploaded ID photos (Adhaar front/back, DL, others)
+  - Booking history preview
+- Add Edit button to update fields & add/remove docs.
+- Sort customer list by recency by default (recent first). Add sort toggle (A→Z / Newest).
+
+11) BOOKING — VIEW INVOICE
+- For each booking add "View Invoice" action.
+- Generate invoice UI (rent, deposit, taxes if any, total, customer details, bike details, dates).
+- Provide "Download PDF" (use client-side pdf lib or server endpoint) and "Share" option.
+
+12) BOOK MULTIPLE BIKES IN ONE BOOKING
+- Update New Booking flow to enable selecting multiple bikes (checkbox list or add bike button).
+- Booking model: allow booking.bikeIds: string[] and booking must track per-bike amounts if needed.
+- UI: show aggregated total and per-bike line items.
+
+13) CANCEL BOOKING
+- Add Cancel Booking action (soft-delete / status='cancelled') with confirmation modal.
+- Refund flow: mark refund status (refunded: boolean; refundAmount).
+- Backend must allow only authorized roles to cancel (staff/admin rules if necessary).
+
+14) BOOKINGS TAB — ADD AVAILABILITY CALENDAR
+- Add availability calendar similar to #1 inside Bookings tab (filter by bike or show all).
+- Clicking a date updates the bookings list for that date.
+
+15) ADD CUSTOMER IN BOOKING — KYC FIELDS
+- In New Booking customer selector/modal, ensure Add Customer inline matches Add Customer screen:
+  - Name, phone, address, Aadhaar front+back, Driving License upload, notes.
+- After creating, auto-select for booking.
+
+16) AADHAAR FRONT & BACK
+- Update all Add Customer screens to require Aadhaar front and Aadhaar back uploads (make back optional but show clear UI).
+- Validate image type and size.
+
+17) ID PROOF TYPE CHOICE
+- Replace fixed Aadhaar with ID type selector: Aadhaar | Voter ID | Passport | Driving License.
+- Based on selection, change required fields and labels. For Aadhaar show front/back fields; for Voter ID show front/back; for Passport show passport page upload.
+
+18) NEW BOOKING — DATE & TIME FUNCTIONALITY
+- Fix date/time pickers in New Booking: add fully functional date+time pickers for start and end.
+- Place date & time pickers at top and also sticky at bottom (or summary bar) so user can change quickly while selecting bikes/customers.
+- Validate: end > start and booking duration limit checks if any.
+
+DATA MODEL CHANGES (DB & client types)
+- Bike: { id, name, regNo, modelYear, fuelType, openingKm, kmDriven, photos: string[], damages: Damage[], status, pricePerDay }
+- Damage: { id, date, photoUrl, notes, severity, reportedBy }
+- Booking: { id, bikeIds:string[], customerId, startTime:timestamp, endTime:timestamp, rent:number, deposit:number, total:number, status, paymentStatus:'paid'|'partial'|'unpaid', photosBefore:[], photosAfter:[], history:[], returnedAt?:timestamp, cancelledAt?:timestamp, refundAmount?:number }
+- Customer: { id, name, phone, idType, idPhotos:{front,back}, address, dateAdded, notes }
+
+BACKEND / FIRESTORE RULES & ENDPOINTS
+- Add endpoints/Cloud Functions (or Node routes) to:
+  - GET /availability?date=YYYY-MM-DD  (returns bikes available/booked)
+  - POST /bookings (create) with multi-bike support; validate overlaps
+  - PATCH /bookings/:id (edit) with overlap checks
+  - PATCH /bookings/:id/return (mark returned)
+  - POST /bookings/:id/cancel (soft-cancel)
+  - POST /bikes/:id/damages (add damage)
+  - POST /customers (create)
+- Firestore rules should restrict sensitive ops (delete/cancel/return) to admin or role-checked users.
+
+UI / IMPLEMENTATION NOTES
+- Use `react-native-calendars` or similar for monthly calendar UI and day selection.
+- Use `react-native-modal` for day drill-down and AddCustomer inline modal.
+- Use `expo-image-picker` + client-side resize (expo-image-manipulator) for uploads.
+- Use `Linking.openURL('tel:')` and `https://wa.me/` for calls/WhatsApp.
+- For Invoice PDF use `react-native-pdf` generation library or server-side rendering if server exists.
+- For multiple-bike booking, show per-bike line items and total.
+- Use optimistic update for UI but ensure server validation/race handling (booking overlap).
+
+TESTS & QA
+- Unit test for availability function (no overlapping bookings allowed).
+- End-to-end scenario:
+  1. Add bike with previous damages and photos.
+  2. Add customer (with ID front+back).
+  3. Create multi-bike booking with date+time.
+  4. Verify booking appears in calendar on selected dates.
+  5. Edit booking times and confirm overlap is prevented.
+  6. Mark booking returned; verify bike availability updated for future dates.
+  7. View Invoice and download PDF.
+  8. Call and WhatsApp icons open device apps (simulate in emulator or log URL).
+  9. Cancel booking and verify status='cancelled' and refund fields appear.
+
+ACCEPTANCE CRITERIA (to close task)
+- Calendar on Home shows booked counts and allows day drill-down and filtering of bikes by selected day.
+- Revenue button opens interactive report (daily/monthly/date-range) with export option.
+- Add Staff button is functional and creates staff with role.
+- Bookings list shows phone, call button opens `tel:` link; WhatsApp icon opens `https://wa.me/`.
+- "Mark as Returned" action updates booking and bike availability respecting future bookings.
+- Add Bike supports previous damage upload; Bike Edit shows damages list.
+- Bookings filters present and work (date, paid/unpaid/continued).
+- Customer list has call, view, edit; recent customers on top; view shows ID front+back.
+- Invoice view exists and can download/print (or at least open PDF preview).
+- Booking flow allows multiple bikes, date+time at top & bottom, separate rent & deposit fields, ability to add customer inline with full KYC (Aadhaar front/back or other ID), and cancel booking with confirmation.
+- All backend checks for overlaps, returns, cancelations and admin-only deletes enforced.
+
+DELIVERABLES
+- Updated client code, server/cloud-functions, DB migration or sample seed script.
+- README updated with new endpoints, calendar implementation details, and steps to test reports & invoice export.
+- Short demo video (30–60s) showing calendar drill-down, revenue report, call/WhatsApp action, add customer inline, multi-bike booking, return bike flow, and invoice download.
+
+PRIORITY NOTES (developer: do in this order)
+1. Fix date+time pickers and booking overlap logic (blocking bugs).
+2. Make Add Staff & Add Bike (photos + damages) fully functional.
+3. Implement availability calendar and filters (UI heavy).
+4. Add call/WhatsApp and invoice functionality (UX finishing).
+5. Add tests and CSV/pdf export.
+
+If any technology choice is needed (calendar lib, PDF generation, serverless vs Node), prefer existing project stack and keep Firebase as default. Provide brief tech decisions in PR description.
+
