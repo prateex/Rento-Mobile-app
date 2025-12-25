@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
-import { supabase, createUserClient } from '../supabase';
+import { getSupabaseAdminClient } from '../lib/supabaseAdmin';
+import { getSupabaseUserClient } from '../lib/supabaseUser';
 
 // Extend Express Request type to include user
 declare global {
@@ -38,7 +39,9 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
     const token = authHeader.substring(7); // Remove 'Bearer ' prefix
 
     // Verify token with Supabase Auth
-    const { data: { user }, error } = await supabase.auth.getUser(token);
+    // Use admin client only to validate the JWT via Auth API
+    const admin = getSupabaseAdminClient();
+    const { data: { user }, error } = await admin.auth.getUser(token);
 
     if (error || !user) {
       return res.status(401).json({ 
@@ -51,7 +54,7 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
     console.log('AUTH USER ID:', user.id);
 
     // Use an RLS-aware client with the user's access token
-    const userClient = createUserClient(token);
+    const userClient = getSupabaseUserClient(token);
 
     // Fetch user profile from database using RLS-aware context
     const { data: profile, error: profileError } = await userClient

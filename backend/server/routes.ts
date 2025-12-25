@@ -1,7 +1,8 @@
 import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "http";
-import { supabase, createUserClient } from "./supabase";
 import { requireAuth, requireAdmin } from "./middleware/auth";
+import { getSupabaseUserClient } from "./lib/supabaseUser";
+import { getSupabaseAdminClient } from "./lib/supabaseAdmin";
 
 /**
  * HELPER FUNCTION: Get user's shop ID
@@ -25,6 +26,17 @@ function enforceShopIdInInsert(req: Request, data: any): any {
   // Remove shop_id from request body and use authenticated user's shop
   const { shop_id, ...cleanData } = data;
   return { ...cleanData, shop_id: shopId };
+}
+
+/**
+ * HELPER: Get RLS-enforced Supabase client from request JWT
+ */
+function getUserClient(req: Request) {
+  const token = req.headers.authorization?.replace('Bearer ', '');
+  if (!token) {
+    throw new Error('Missing Authorization token');
+  }
+  return getSupabaseUserClient(token);
 }
 
 export async function registerRoutes(
@@ -71,8 +83,9 @@ export async function registerRoutes(
         });
       }
 
-      // Step 1: Authenticate with Supabase Auth
-      const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+      // Step 1: Authenticate with Supabase Auth (Admin client)
+      const admin = getSupabaseAdminClient();
+      const { data: authData, error: authError } = await admin.auth.signInWithPassword({
         email,
         password,
       });
@@ -85,11 +98,8 @@ export async function registerRoutes(
       }
 
       const userId = authData.user.id;
-      // TEMP DEBUG LOGS
-      console.log('AUTH USER ID:', userId);
-
       // Create an RLS-aware Supabase client using user's access token
-      const userClient = createUserClient(authData.session.access_token);
+      const userClient = getSupabaseUserClient(authData.session.access_token);
 
       // Step 2: Fetch user profile
       const { data: profile, error: profileError } = await userClient
@@ -99,8 +109,6 @@ export async function registerRoutes(
         .single();
 
       if (profileError || !profile) {
-        // Sign out the user since profile doesn't exist
-        await supabase.auth.signOut();
         return res.status(403).json({ 
           error: 'Access Denied', 
           message: 'User profile not found. Contact admin.' 
@@ -108,11 +116,7 @@ export async function registerRoutes(
       }
 
       // Step 3: Check if user is approved
-      // TEMP DEBUG LOGS
-      console.log('PROFILE:', profile);
-
       if (!profile.allowed) {
-        await supabase.auth.signOut();
         return res.status(403).json({ 
           error: 'Access Denied', 
           message: 'Access not approved. Contact admin.' 
@@ -132,7 +136,7 @@ export async function registerRoutes(
       }
 
       // Step 5: Update last_device_id and last_login_at (use service role for system operation)
-      const { error: updateError } = await supabase
+      const { error: updateError } = await admin
         .from('profiles')
         .update({
           last_device_id: device_id,
@@ -146,7 +150,7 @@ export async function registerRoutes(
       }
 
       // Step 6: Get user's rental shop (use service role since user may not have a shop yet)
-      const { data: shop, error: shopError } = await supabase
+      const { data: shop, error: shopError } = await admin
         .from('rental_shops')
         .select('id, name')
         .eq('owner_id', userId)
@@ -184,11 +188,6 @@ export async function registerRoutes(
       const authHeader = req.headers.authorization;
       const token = authHeader?.substring(7);
 
-      if (token) {
-        // Sign out from Supabase
-        await supabase.auth.signOut();
-      }
-
       res.json({ success: true, message: 'Logged out successfully' });
     } catch (error: any) {
       console.error('Logout error:', error);
@@ -214,6 +213,7 @@ export async function registerRoutes(
    */
   app.post("/api/admin/create-user", requireAdmin, async (req: Request, res: Response) => {
     try {
+      const admin = getSupabaseAdminClient();
       const { email, password, full_name, phone, role, shop_name, city, state, gst_number } = req.body;
 
       // Validate required fields
@@ -234,7 +234,7 @@ export async function registerRoutes(
 
       // Step 1: Create user in Supabase Auth using Admin API
       // Note: This requires SUPABASE_SERVICE_ROLE_KEY in environment
-      const { data: authData, error: authError } = await supabase.auth.admin.createUser({
+      const { data: authData, error: authError } = await admin.auth.admin.createUser({
         email,
         password,
         email_confirm: true, // Auto-confirm email
@@ -258,7 +258,7 @@ export async function registerRoutes(
       // Step 3: Create rental shop if this is an owner
       let shopData = null;
       if (role === 'owner' && shop_name) {
-        const { data: shop, error: shopError } = await supabase
+        const { data: shop, error: shopError } = await admin
           .from('rental_shops')
           .insert({
             owner_id: userId,
@@ -308,6 +308,7 @@ export async function registerRoutes(
    */
   app.patch("/api/admin/approve-user", requireAdmin, async (req: Request, res: Response) => {
     try {
+      const admin = getSupabaseAdminClient();
       const { email, allowed } = req.body as { email?: string; allowed?: boolean };
       if (!email || typeof allowed !== 'boolean') {
         return res.status(400).json({
@@ -317,7 +318,7 @@ export async function registerRoutes(
       }
 
       // Find user by email via Supabase Admin API
-      const { data: usersList, error: listError } = await supabase.auth.admin.listUsers();
+      const { data: usersList, error: listError } = await admin.auth.admin.listUsers();
       if (listError) {
         return res.status(500).json({ error: 'Server Error', message: listError.message });
       }
@@ -327,7 +328,7 @@ export async function registerRoutes(
       }
 
       // Update profiles.allowed for the user id
-      const { error: updateError } = await supabase
+      const { error: updateError } = await admin
         .from('profiles')
         .update({ allowed })
         .eq('id', target.id);
@@ -352,13 +353,14 @@ export async function registerRoutes(
     try {
       // shopId is attached by auth middleware - NEVER trust from request body
       const shopId = req.user!.shopId;
+      const userClient = getUserClient(req);
 
       if (!shopId) {
         return res.status(403).json({ error: 'User not associated with any shop' });
       }
 
       // Get bookings for this shop
-      const { data: bookings, error: bookingsError } = await supabase
+      const { data: bookings, error: bookingsError } = await userClient
         .from('bookings')
         .select(`
           *,
@@ -382,6 +384,7 @@ export async function registerRoutes(
   app.post("/api/bookings", requireAuth, async (req: Request, res: Response) => {
     try {
       const shopId = req.user!.shopId;
+      const userClient = getUserClient(req);
       const bookingData = req.body;
 
       if (!shopId) {
@@ -394,7 +397,7 @@ export async function registerRoutes(
         shop_id: shopId,
       };
 
-      const { data, error } = await supabase
+      const { data, error } = await userClient
         .from('bookings')
         .insert(newBooking)
         .select()
@@ -416,6 +419,7 @@ export async function registerRoutes(
     try {
       const shopId = req.user!.shopId;
       const bookingId = req.params.id;
+      const userClient = getUserClient(req);
       const updates = req.body;
 
       if (!shopId) {
@@ -423,7 +427,7 @@ export async function registerRoutes(
       }
 
       // Update only if booking belongs to user's shop (data scoping)
-      const { data, error } = await supabase
+      const { data, error } = await userClient
         .from('bookings')
         .update({ ...updates, updated_at: new Date().toISOString() })
         .eq('id', bookingId)
@@ -453,12 +457,13 @@ export async function registerRoutes(
   app.get("/api/vehicles", requireAuth, async (req: Request, res: Response) => {
     try {
       const shopId = req.user!.shopId;
+      const userClient = getUserClient(req);
 
       if (!shopId) {
         return res.status(403).json({ error: 'User not associated with any shop' });
       }
 
-      const { data: vehicles, error } = await supabase
+      const { data: vehicles, error } = await userClient
         .from('vehicles')
         .select('*')
         .eq('shop_id', shopId)
@@ -478,6 +483,7 @@ export async function registerRoutes(
   app.post("/api/vehicles", requireAuth, async (req: Request, res: Response) => {
     try {
       const shopId = req.user!.shopId;
+      const userClient = getUserClient(req);
       const vehicleData = req.body;
 
       if (!shopId) {
@@ -489,7 +495,7 @@ export async function registerRoutes(
         shop_id: shopId,
       };
 
-      const { data, error } = await supabase
+      const { data, error } = await userClient
         .from('vehicles')
         .insert(newVehicle)
         .select()
@@ -513,12 +519,13 @@ export async function registerRoutes(
   app.get("/api/customers", requireAuth, async (req: Request, res: Response) => {
     try {
       const shopId = req.user!.shopId;
+      const userClient = getUserClient(req);
 
       if (!shopId) {
         return res.status(403).json({ error: 'User not associated with any shop' });
       }
 
-      const { data: customers, error } = await supabase
+      const { data: customers, error } = await userClient
         .from('customers')
         .select('*')
         .eq('shop_id', shopId)
@@ -538,6 +545,7 @@ export async function registerRoutes(
   app.post("/api/customers", requireAuth, async (req: Request, res: Response) => {
     try {
       const shopId = req.user!.shopId;
+      const userClient = getUserClient(req);
       const customerData = req.body;
 
       if (!shopId) {
@@ -549,7 +557,7 @@ export async function registerRoutes(
         shop_id: shopId,
       };
 
-      const { data, error } = await supabase
+      const { data, error } = await userClient
         .from('customers')
         .insert(newCustomer)
         .select()
@@ -573,13 +581,14 @@ export async function registerRoutes(
   app.get("/api/payments", requireAuth, async (req: Request, res: Response) => {
     try {
       const shopId = getUserShopId(req);
+      const userClient = getUserClient(req);
 
       if (!shopId) {
         return res.status(403).json({ error: 'User not associated with any shop' });
       }
 
       // Get payments for bookings in this shop - filtered by shop_id
-      const { data: payments, error } = await supabase
+      const { data: payments, error } = await userClient
         .from('payments')
         .select(`
           *,
@@ -602,6 +611,7 @@ export async function registerRoutes(
   app.post("/api/payments", requireAuth, async (req: Request, res: Response) => {
     try {
       const shopId = getUserShopId(req);
+      const userClient = getUserClient(req);
 
       if (!shopId) {
         return res.status(403).json({ error: 'User not associated with any shop' });
@@ -609,7 +619,7 @@ export async function registerRoutes(
 
       // Verify booking belongs to user's shop before creating payment
       if (req.body.booking_id) {
-        const { data: booking, error: bookingError } = await supabase
+        const { data: booking, error: bookingError } = await userClient
           .from('bookings')
           .select('shop_id')
           .eq('id', req.body.booking_id)
@@ -624,7 +634,7 @@ export async function registerRoutes(
       // CRITICAL: Enforce shop_id from authenticated user - NEVER accept from request body
       const paymentData = enforceShopIdInInsert(req, req.body);
 
-      const { data, error } = await supabase
+      const { data, error } = await userClient
         .from('payments')
         .insert(paymentData)
         .select()
@@ -648,13 +658,14 @@ export async function registerRoutes(
   app.get("/api/deposits", requireAuth, async (req: Request, res: Response) => {
     try {
       const shopId = getUserShopId(req);
+      const userClient = getUserClient(req);
 
       if (!shopId) {
         return res.status(403).json({ error: 'User not associated with any shop' });
       }
 
       // Get deposits for bookings in this shop - filtered by shop_id
-      const { data: deposits, error } = await supabase
+      const { data: deposits, error } = await userClient
         .from('deposits')
         .select(`
           *,
@@ -677,6 +688,7 @@ export async function registerRoutes(
   app.post("/api/deposits", requireAuth, async (req: Request, res: Response) => {
     try {
       const shopId = getUserShopId(req);
+      const userClient = getUserClient(req);
 
       if (!shopId) {
         return res.status(403).json({ error: 'User not associated with any shop' });
@@ -684,7 +696,7 @@ export async function registerRoutes(
 
       // Verify booking belongs to user's shop before creating deposit
       if (req.body.booking_id) {
-        const { data: booking, error: bookingError } = await supabase
+        const { data: booking, error: bookingError } = await userClient
           .from('bookings')
           .select('shop_id')
           .eq('id', req.body.booking_id)
@@ -699,7 +711,7 @@ export async function registerRoutes(
       // CRITICAL: Enforce shop_id from authenticated user - NEVER accept from request body
       const depositData = enforceShopIdInInsert(req, req.body);
 
-      const { data, error } = await supabase
+      const { data, error } = await userClient
         .from('deposits')
         .insert(depositData)
         .select()
@@ -721,6 +733,7 @@ export async function registerRoutes(
       const shopId = getUserShopId(req);
       const depositId = req.params.id;
       const updates = req.body;
+      const userClient = getUserClient(req);
 
       if (!shopId) {
         return res.status(403).json({ error: 'User not associated with any shop' });
@@ -728,7 +741,7 @@ export async function registerRoutes(
 
       // Update only if deposit belongs to user's shop (data scoping)
       // First verify the deposit belongs to this shop
-      const { data: existingDeposit, error: fetchError } = await supabase
+      const { data: existingDeposit, error: fetchError } = await userClient
         .from('deposits')
         .select(`
           *,
@@ -741,7 +754,7 @@ export async function registerRoutes(
         return res.status(403).json({ error: 'Deposit not found or access denied' });
       }
 
-      const { data, error } = await supabase
+      const { data, error } = await userClient
         .from('deposits')
         .update(updates)
         .eq('id', depositId)
@@ -766,13 +779,14 @@ export async function registerRoutes(
   app.get("/api/damages", requireAuth, async (req: Request, res: Response) => {
     try {
       const shopId = getUserShopId(req);
+      const userClient = getUserClient(req);
 
       if (!shopId) {
         return res.status(403).json({ error: 'User not associated with any shop' });
       }
 
       // Get damages for bookings in this shop - filtered by shop_id
-      const { data: damages, error } = await supabase
+      const { data: damages, error } = await userClient
         .from('damages')
         .select(`
           *,
@@ -795,6 +809,7 @@ export async function registerRoutes(
   app.post("/api/damages", requireAuth, async (req: Request, res: Response) => {
     try {
       const shopId = getUserShopId(req);
+      const userClient = getUserClient(req);
 
       if (!shopId) {
         return res.status(403).json({ error: 'User not associated with any shop' });
@@ -802,7 +817,7 @@ export async function registerRoutes(
 
       // Verify booking belongs to user's shop before creating damage
       if (req.body.booking_id) {
-        const { data: booking, error: bookingError } = await supabase
+        const { data: booking, error: bookingError } = await userClient
           .from('bookings')
           .select('shop_id')
           .eq('id', req.body.booking_id)
@@ -817,7 +832,7 @@ export async function registerRoutes(
       // CRITICAL: Enforce shop_id from authenticated user - NEVER accept from request body
       const damageData = enforceShopIdInInsert(req, req.body);
 
-      const { data, error } = await supabase
+      const { data, error } = await userClient
         .from('damages')
         .insert(damageData)
         .select()
@@ -839,6 +854,7 @@ export async function registerRoutes(
       const shopId = getUserShopId(req);
       const damageId = req.params.id;
       const updates = req.body;
+      const userClient = getUserClient(req);
 
       if (!shopId) {
         return res.status(403).json({ error: 'User not associated with any shop' });
@@ -846,7 +862,7 @@ export async function registerRoutes(
 
       // Update only if damage belongs to user's shop (data scoping)
       // First verify the damage belongs to this shop
-      const { data: existingDamage, error: fetchError } = await supabase
+      const { data: existingDamage, error: fetchError } = await userClient
         .from('damages')
         .select(`
           *,
@@ -859,7 +875,7 @@ export async function registerRoutes(
         return res.status(403).json({ error: 'Damage not found or access denied' });
       }
 
-      const { data, error } = await supabase
+      const { data, error } = await userClient
         .from('damages')
         .update(updates)
         .eq('id', damageId)
