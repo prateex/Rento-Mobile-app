@@ -11,6 +11,7 @@ import { useForm } from "react-hook-form";
 import { useToast } from "@/hooks/use-toast";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useLocation } from "wouter";
+import { supabase } from "@/lib/supabase";
 
 export default function Customers() {
   const { customers, addCustomer, updateCustomer, deleteCustomer } = useStore();
@@ -21,6 +22,48 @@ export default function Customers() {
   const [confirmDelete, setConfirmDelete] = useState<{ open: boolean; customer?: Customer }>({ open: false });
   const [, setLocation] = useLocation();
   const { toast } = useToast();
+
+  // Fetch customers from Supabase on mount
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data: sessionData } = await supabase.auth.getSession();
+        const uid = sessionData.session?.user?.id;
+        if (!uid) return;
+        
+        const { data: shops } = await supabase.from('rental_shops').select('id').limit(1);
+        const shopId = shops?.[0]?.id;
+        if (!shopId) return;
+        
+        const { data: rows, error } = await supabase
+          .from('customers')
+          .select('id,full_name,phone,email,address,id_type,id_photos,documents,status,created_at')
+          .eq('shop_id', shopId)
+          .eq('user_id', uid);
+        
+        if (!error && Array.isArray(rows)) {
+          rows.forEach(row => {
+            if (!customers.find(c => c.id === row.id)) {
+              addCustomer({
+                id: row.id,
+                name: row.full_name || '',
+                phone: row.phone || '',
+                email: row.email,
+                address: row.address,
+                idType: row.id_type as any,
+                idPhotos: row.id_photos || { front: '' },
+                documents: row.documents,
+                status: row.status as any,
+                dateAdded: row.created_at || new Date().toISOString(),
+              });
+            }
+          });
+        }
+      } catch (e) {
+        console.error('[Customers] Fetch error:', e);
+      }
+    })();
+  }, []);
 
   const filteredCustomers = customers.filter(c => 
     c.name.toLowerCase().includes(search.toLowerCase()) || 
@@ -37,23 +80,99 @@ export default function Customers() {
     const [backUrl, setBackUrl] = useState<string>(initialData?.idPhotos?.back || '');
     const [documents, setDocuments] = useState<{ type: string; url: string }[]>(initialData?.documents || []);
 
-    const onSubmit = (data: any) => {
+    const onSubmit = async (formData: any) => {
       if (initialData) {
-         updateCustomer(initialData.id, { ...data, idPhotos: { front: frontUrl, back: backUrl }, documents });
-         toast({ title: "Updated", description: "Customer details updated." });
-      } else {
-         const newCustomer: Customer = {
-           ...data,
-           id: Math.random().toString(36).substr(2, 9),
-           status: 'Verified',
-           dateAdded: new Date().toISOString(),
-           idPhotos: { front: frontUrl, back: backUrl },
-           documents
-         };
-         addCustomer(newCustomer);
-         toast({ title: "Registered", description: `${newCustomer.name} has been registered.` });
+        // Local update for now; full DB update can follow later
+        updateCustomer(initialData.id, { ...formData, idPhotos: { front: frontUrl, back: backUrl }, documents });
+        toast({ title: "Updated", description: "Customer details updated." });
+        onClose();
+        return;
       }
-      onClose();
+
+      // Create via Supabase under authenticated context
+      try {
+        const { data: sessionData } = await supabase.auth.getSession();
+        const uid = sessionData.session?.user?.id;
+        try { console.log("AUTH UID (Customers)", uid); } catch {}
+        if (!uid) {
+          toast({ title: "Not Signed In", description: "Please sign in before adding customers.", variant: "destructive" });
+          return;
+        }
+
+        // Fetch owner shop_id visible to this user
+        const { data: shops, error: shopError } = await supabase
+          .from('rental_shops')
+          .select('id')
+          .limit(1);
+
+        if (shopError) {
+          toast({ title: "Shop Lookup Failed", description: shopError.message, variant: "destructive" });
+          return;
+        }
+
+        const shopId = shops && shops.length > 0 ? shops[0].id : null;
+        if (!shopId) {
+          toast({ title: "No Shop Found", description: "Create a shop before adding customers.", variant: "destructive" });
+          return;
+        }
+
+        const payload = {
+          shop_id: shopId,
+          user_id: uid,
+          full_name: formData.name,
+          phone: formData.phone,
+          email: formData.email || null,
+          address: formData.address || null,
+          id_type: formData.idType || 'Aadhaar',
+          id_photos: { front: frontUrl || null, back: backUrl || null },
+          documents: documents && documents.length ? documents : null,
+          status: 'Verified',
+          notes: formData.notes || null,
+        };
+
+        const { data: inserted, error } = await supabase
+          .from('customers')
+          .insert(payload)
+          .select('id,user_id,full_name,phone,email,address,id_type,id_photos,documents,status,created_at');
+
+        if (error) {
+          toast({ title: "Insert Failed", description: error.message, variant: "destructive" });
+          return;
+        }
+
+        const row = inserted && inserted[0];
+        if (!row) {
+          toast({ title: "Insert Incomplete", description: "No row returned from database.", variant: "destructive" });
+          return;
+        }
+
+        // Update local state for immediate UI feedback
+        const newCustomer: Customer = {
+          id: row.id,
+          name: row.full_name,
+          phone: row.phone,
+          email: row.email || undefined,
+          address: row.address || undefined,
+          idType: row.id_type,
+          idPhotos: row.id_photos || { front: frontUrl || '', back: backUrl || '' },
+          documents: row.documents || documents || [],
+          status: row.status || 'Verified',
+          dateAdded: row.created_at || new Date().toISOString(),
+          notes: payload.notes || undefined,
+        };
+
+        addCustomer(newCustomer);
+
+        // Post-insert verification: count customers for this user
+        const { count } = await supabase
+          .from('customers')
+          .select('id', { count: 'exact', head: true });
+
+        toast({ title: "Registered", description: `${newCustomer.name} added. Total customers: ${count ?? 'n/a'}.` });
+        onClose();
+      } catch (e: any) {
+        toast({ title: "Unexpected Error", description: e?.message || String(e), variant: "destructive" });
+      }
     };
 
     return (

@@ -16,6 +16,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Calendar as CalendarComponent } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { format, parseISO, startOfDay, endOfDay, addDays, isWithinInterval } from "date-fns";
+import { supabase } from "@/lib/supabase";
 
 const getVehicleIcon = (type?: string) => {
   return type === 'car' ? <CarIcon size={16} /> : <BikeIcon size={16} />;
@@ -47,6 +48,54 @@ export default function Bikes() {
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [editingBike, setEditingBike] = useState<Bike | null>(null);
   const [viewingBike, setViewingBike] = useState<Bike | null>(null);
+
+  // Fetch bikes from Supabase on mount
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data: sessionData } = await supabase.auth.getSession();
+        const uid = sessionData.session?.user?.id;
+        if (!uid) return;
+        
+        const { data: shops } = await supabase.from('rental_shops').select('id').limit(1);
+        const shopId = shops?.[0]?.id;
+        if (!shopId) return;
+        
+        const { data: rows, error } = await supabase
+          .from('vehicles')
+          .select('id,name,registration_number,type,brand,model,year,image_url,daily_rate,status,current_odometer,documents,damages,created_at')
+          .eq('shop_id', shopId)
+          .eq('user_id', uid);
+        
+        if (!error && Array.isArray(rows)) {
+          rows.forEach(row => {
+            if (!bikes.find(b => b.id === row.id)) {
+              addBike({
+                id: row.id,
+                name: row.name || '',
+                regNo: row.registration_number || '',
+                registration_number: row.registration_number,
+                type: (row.type || 'bike') as any,
+                brand: row.brand,
+                model: row.model,
+                modelYear: String(row.year || ''),
+                fuelType: ((row.documents as any)?.fuelType || 'Petrol') as any,
+                pricePerDay: Number(row.daily_rate) || 0,
+                status: (row.status || 'Available') as any,
+                image: row.image_url || '',
+                photos: Array.isArray((row.documents as any)?.photos) ? (row.documents as any).photos : [],
+                openingKm: 0,
+                kmDriven: Number(row.current_odometer) || 0,
+                damages: Array.isArray(row.damages) ? (row.damages as any) : [],
+              });
+            }
+          });
+        }
+      } catch (e) {
+        console.error('[Bikes] Fetch error:', e);
+      }
+    })();
+  }, []);
   const [isDamageModalOpen, setIsDamageModalOpen] = useState(false);
   const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'tomorrow' | 'custom'>('all');
   const [customDate, setCustomDate] = useState<Date | undefined>(undefined);
@@ -185,7 +234,7 @@ export default function Bikes() {
        }]);
     }
 
-    const onSubmit = (data: any) => {
+    const onSubmit = async (data: any) => {
       const bikeData = {
         ...data,
         photos: photos.length > 0 ? photos : ['https://images.unsplash.com/photo-1558981806-ec527fa84c3d?auto=format&fit=crop&q=80&w=800'],
@@ -200,12 +249,81 @@ export default function Bikes() {
         updateBike(initialData.id, bikeData);
         toast({ title: "Vehicle Updated", description: "Changes saved successfully." });
       } else {
-        const newBike = {
-           ...bikeData,
-           id: Math.random().toString(36).substr(2, 9),
-        };
-        addBike(newBike);
-        toast({ title: "Vehicle Added", description: `${newBike.name} added to fleet.` });
+        try {
+          const { data: sessionData } = await supabase.auth.getSession();
+          const uid = sessionData.session?.user?.id;
+          try { console.log("AUTH UID (Bikes)", uid); } catch {}
+          if (!uid) {
+            toast({ title: "Not Signed In", description: "Please sign in before adding vehicles.", variant: "destructive" });
+            return;
+          }
+          const { data: shops, error: shopErr } = await supabase
+            .from('rental_shops')
+            .select('id')
+            .eq('owner_id', uid)
+            .limit(1);
+          if (shopErr) {
+            toast({ title: "Shop Lookup Failed", description: shopErr.message, variant: "destructive" });
+            return;
+          }
+          const shop = shops && shops[0];
+          if (!shop?.id) {
+            toast({ title: "No Shop Found", description: "You must own a rental shop to add vehicles.", variant: "destructive" });
+            return;
+          }
+
+          const payload = {
+            shop_id: shop.id,
+            user_id: uid,
+            name: bikeData.name,
+            registration_number: bikeData.regNo,
+            type: bikeData.type || 'bike',
+            brand: bikeData.brand || null,
+            model: bikeData.model || null,
+            year: Number(bikeData.modelYear) || null,
+            image_url: bikeData.image || null,
+            daily_rate: Number(bikeData.pricePerDay) || 0,
+            current_odometer: Number(bikeData.kmDriven) || 0,
+            documents: { fuelType: bikeData.fuelType, photos: bikeData.photos },
+            damages: bikeData.damages || [],
+          };
+
+          const { data: row, error } = await supabase
+            .from('vehicles')
+            .insert(payload)
+            .select('id, name, registration_number, type, brand, model, year, image_url, daily_rate, status, current_odometer, documents, damages, created_at')
+            .single();
+          if (error) {
+            toast({ title: "Insert Failed", description: error.message, variant: "destructive" });
+            return;
+          }
+
+          const newBike: Bike = {
+            id: row.id,
+            name: row.name,
+            brand: row.brand || undefined,
+            model: row.model || undefined,
+            regNo: row.registration_number,
+            modelYear: String(row.year ?? ''),
+            fuelType: (row.documents?.fuelType as any) || bikeData.fuelType,
+            type: row.type as any,
+            pricePerDay: Number(row.daily_rate) || 0,
+            status: row.status as any,
+            image: row.image_url || bikeData.image,
+            photos: Array.isArray((row.documents as any)?.photos) ? (row.documents as any).photos : bikeData.photos,
+            openingKm: bikeData.openingKm,
+            kmDriven: Number(row.current_odometer) || bikeData.kmDriven,
+            lastClosingOdometer: undefined,
+            damages: Array.isArray(row.damages) ? row.damages as any : [],
+          };
+          addBike(newBike);
+          const { count } = await supabase
+            .from('vehicles')
+            .select('id', { count: 'exact', head: true });
+          toast({ title: "Vehicle Added", description: `Saved to database. Total vehicles: ${count ?? 'n/a'}.` });
+        } catch (e: any) {
+          toast({ title: "Unexpected Error", description: e?.message || String(e), variant: "destructive" });
+        }
       }
       onClose();
     };
@@ -360,24 +478,85 @@ export default function Bikes() {
       setDamagePhotos(newPhotos);
     };
     
-    const onSubmit = (data: any) => {
-      const newDamage: Damage = {
-        id: Math.random().toString(36).substr(2, 9),
-        type: data.type || 'Other',
-        severity: data.severity,
-        date: damageDate.toISOString(),
-        photoUrls: damagePhotos.length > 0 ? damagePhotos : ['https://images.unsplash.com/photo-1449426468159-d96dbf08f19f?auto=format&fit=crop&q=80&w=800'],
-        notes: data.notes,
-        addedBy: user?.id || 'unknown',
-        addedAt: new Date().toISOString()
-      };
-      
-      const bike = bikes.find(b => b.id === bikeId);
-      if (bike) {
-        updateBike(bikeId, { damages: [...(bike.damages || []), newDamage] });
-        toast({ title: "Damage Reported", description: "Damage log added to bike history." });
+    const onSubmit = async (data: any) => {
+      try {
+        const { data: sessionData } = await supabase.auth.getSession();
+        const uid = sessionData.session?.user?.id;
+        try { console.log("AUTH UID (Bikes:Damage)", uid); } catch {}
+        if (!uid) {
+          toast({ title: "Not Signed In", description: "Please sign in before reporting damages.", variant: "destructive" });
+          return;
+        }
+        const { data: shops, error: shopErr } = await supabase
+          .from('rental_shops')
+          .select('id')
+          .eq('owner_id', uid)
+          .limit(1);
+        if (shopErr) {
+          toast({ title: "Shop Lookup Failed", description: shopErr.message, variant: "destructive" });
+          return;
+        }
+        const shop = shops && shops[0];
+        if (!shop?.id) {
+          toast({ title: "No Shop Found", description: "Associate account with a shop.", variant: "destructive" });
+          return;
+        }
+
+        const { data: userRecords, error: userErr } = await supabase
+          .from('users')
+          .select('id')
+          .eq('auth_id', uid)
+          .limit(1);
+        
+        if (userErr || !userRecords || userRecords.length === 0) {
+          toast({ title: "User Record Not Found", description: "Please contact support.", variant: "destructive" });
+          return;
+        }
+
+        const userId = userRecords[0].id;
+
+        const { data: inserted, error } = await supabase
+          .from('damages')
+          .insert({
+            shop_id: shop.id,
+            user_id: userId,
+            vehicle_id: bikeId,
+            booking_id: null,
+            description: data.notes || null,
+            photo_urls: damagePhotos.length > 0 ? damagePhotos : ['https://images.unsplash.com/photo-1449426468159-d96dbf08f19f?auto=format&fit=crop&q=80&w=800'],
+            type: data.type || 'Other',
+            severity: (data.severity || 'minor') === 'minor' ? 'Minor' : (data.severity === 'major' ? 'Major' : 'Moderate'),
+            reported_by: userId,
+          })
+          .select('id, description, photo_urls, type, severity, reported_at')
+          .single();
+        if (error) {
+          toast({ title: "Insert Failed", description: error.message, variant: "destructive" });
+          return;
+        }
+
+        const bike = bikes.find(b => b.id === bikeId);
+        if (bike) {
+          const newDamage: Damage = {
+            id: inserted.id,
+            type: inserted.type as any,
+            severity: ((inserted.severity || 'Minor').toLowerCase() as any),
+            date: (inserted as any).reported_at || new Date().toISOString(),
+            photoUrls: (inserted.photo_urls as any) || [],
+            notes: inserted.description || '',
+            addedBy: user?.id || 'unknown',
+            addedAt: (inserted as any).reported_at || new Date().toISOString()
+          };
+          updateBike(bikeId, { damages: [...(bike.damages || []), newDamage] });
+        }
+        const { count } = await supabase
+          .from('damages')
+          .select('id', { count: 'exact', head: true });
+        toast({ title: "Damage Reported", description: `Saved to database. Total damages: ${count ?? 'n/a'}.` });
+        onClose();
+      } catch (e: any) {
+        toast({ title: "Unexpected Error", description: e?.message || String(e), variant: "destructive" });
       }
-      onClose();
     };
 
     return (

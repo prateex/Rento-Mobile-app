@@ -13,7 +13,7 @@ export function getSupabaseUserClient(accessToken: string): SupabaseClient {
   }
 
   return createClient(url, anon, {
-    auth: { autoRefreshToken: false, persistSession: false },
+    auth: { autoRefreshToken: true, persistSession: true, detectSessionInUrl: false },
     global: { headers: { Authorization: `Bearer ${accessToken}` } },
   });
 }

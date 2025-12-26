@@ -10,7 +10,6 @@ declare global {
         id: string;
         email?: string;
         role?: string;
-        shopId?: string; // User's associated shop
       };
     }
   }
@@ -96,26 +95,11 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
       });
     }
 
-    // Get user's rental shop
-    const { data: shop, error: shopError } = await userClient
-      .from('rental_shops')
-      .select('id')
-      .eq('owner_id', user.id)
-      .single();
-
-    if (shopError || !shop) {
-      return res.status(403).json({ 
-        error: 'Access Denied', 
-        message: 'User not associated with any shop' 
-      });
-    }
-
     // Attach user info to request (NEVER trust user_id from request body)
     req.user = {
       id: user.id,
       email: user.email,
-      role: profile.role,
-      shopId: shop.id
+      role: profile.role
     };
 
     next();

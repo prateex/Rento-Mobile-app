@@ -4,28 +4,13 @@ import { requireAuth, requireAdmin } from "./middleware/auth";
 import { getSupabaseUserClient } from "./lib/supabaseUser";
 import { getSupabaseAdminClient } from "./lib/supabaseAdmin";
 
-/**
- * HELPER FUNCTION: Get user's shop ID
- * Safely retrieves shop_id from authenticated user
- * CRITICAL: Use this to ensure shop_id is NEVER accepted from request body
- */
-function getUserShopId(req: Request): string | null {
-  return req.user?.shopId || null;
-}
-
-/**
- * HELPER FUNCTION: Enforce shop_id isolation in INSERT data
- * Removes any shop_id from request body and uses authenticated user's shopId
- * CRITICAL: Prevents cross-shop data injection
- */
-function enforceShopIdInInsert(req: Request, data: any): any {
-  const shopId = getUserShopId(req);
-  if (!shopId) {
-    throw new Error('User not associated with any shop');
-  }
-  // Remove shop_id from request body and use authenticated user's shop
-  const { shop_id, ...cleanData } = data;
-  return { ...cleanData, shop_id: shopId };
+// Strip ownership fields from payloads; rely on DB triggers + RLS for user ownership
+function stripOwnershipFields<T extends Record<string, any>>(data: T): T {
+  // Never accept user_id or shop_id from client input
+  // DB triggers will set user_id = auth.uid() and RLS enforces access
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { user_id, shop_id, ...rest } = data || ({} as T);
+  return rest as T;
 }
 
 /**
@@ -351,22 +336,10 @@ export async function registerRoutes(
   // Get all bookings for the logged-in user's shop
   app.get("/api/bookings", requireAuth, async (req: Request, res: Response) => {
     try {
-      // shopId is attached by auth middleware - NEVER trust from request body
-      const shopId = req.user!.shopId;
       const userClient = getUserClient(req);
-
-      if (!shopId) {
-        return res.status(403).json({ error: 'User not associated with any shop' });
-      }
-
-      // Get bookings for this shop
       const { data: bookings, error: bookingsError } = await userClient
         .from('bookings')
-        .select(`
-          *,
-          customer:customers(id, full_name, phone)
-        `)
-        .eq('shop_id', shopId)
+        .select('*')
         .order('created_at', { ascending: false });
 
       if (bookingsError) {
@@ -383,23 +356,12 @@ export async function registerRoutes(
   // Create a new booking
   app.post("/api/bookings", requireAuth, async (req: Request, res: Response) => {
     try {
-      const shopId = req.user!.shopId;
       const userClient = getUserClient(req);
-      const bookingData = req.body;
-
-      if (!shopId) {
-        return res.status(403).json({ error: 'User not associated with any shop' });
-      }
-
-      // NEVER trust shop_id from request body - use authenticated user's shopId
-      const newBooking = {
-        ...bookingData,
-        shop_id: shopId,
-      };
+      const bookingData = stripOwnershipFields(req.body);
 
       const { data, error } = await userClient
         .from('bookings')
-        .insert(newBooking)
+        .insert(bookingData)
         .select()
         .single();
 
@@ -417,21 +379,13 @@ export async function registerRoutes(
   // Update booking
   app.patch("/api/bookings/:id", requireAuth, async (req: Request, res: Response) => {
     try {
-      const shopId = req.user!.shopId;
       const bookingId = req.params.id;
       const userClient = getUserClient(req);
-      const updates = req.body;
-
-      if (!shopId) {
-        return res.status(403).json({ error: 'User not associated with any shop' });
-      }
-
-      // Update only if booking belongs to user's shop (data scoping)
+      const updates = stripOwnershipFields(req.body);
       const { data, error } = await userClient
         .from('bookings')
         .update({ ...updates, updated_at: new Date().toISOString() })
         .eq('id', bookingId)
-        .eq('shop_id', shopId)
         .select()
         .single();
 
@@ -456,17 +410,10 @@ export async function registerRoutes(
 
   app.get("/api/vehicles", requireAuth, async (req: Request, res: Response) => {
     try {
-      const shopId = req.user!.shopId;
       const userClient = getUserClient(req);
-
-      if (!shopId) {
-        return res.status(403).json({ error: 'User not associated with any shop' });
-      }
-
       const { data: vehicles, error } = await userClient
         .from('vehicles')
         .select('*')
-        .eq('shop_id', shopId)
         .order('created_at', { ascending: false });
 
       if (error) {
@@ -482,22 +429,12 @@ export async function registerRoutes(
 
   app.post("/api/vehicles", requireAuth, async (req: Request, res: Response) => {
     try {
-      const shopId = req.user!.shopId;
       const userClient = getUserClient(req);
-      const vehicleData = req.body;
-
-      if (!shopId) {
-        return res.status(403).json({ error: 'User not associated with any shop' });
-      }
-
-      const newVehicle = {
-        ...vehicleData,
-        shop_id: shopId,
-      };
+      const vehicleData = stripOwnershipFields(req.body);
 
       const { data, error } = await userClient
         .from('vehicles')
-        .insert(newVehicle)
+        .insert(vehicleData)
         .select()
         .single();
 
@@ -518,17 +455,10 @@ export async function registerRoutes(
 
   app.get("/api/customers", requireAuth, async (req: Request, res: Response) => {
     try {
-      const shopId = req.user!.shopId;
       const userClient = getUserClient(req);
-
-      if (!shopId) {
-        return res.status(403).json({ error: 'User not associated with any shop' });
-      }
-
       const { data: customers, error } = await userClient
         .from('customers')
         .select('*')
-        .eq('shop_id', shopId)
         .order('created_at', { ascending: false });
 
       if (error) {
@@ -544,22 +474,12 @@ export async function registerRoutes(
 
   app.post("/api/customers", requireAuth, async (req: Request, res: Response) => {
     try {
-      const shopId = req.user!.shopId;
       const userClient = getUserClient(req);
-      const customerData = req.body;
-
-      if (!shopId) {
-        return res.status(403).json({ error: 'User not associated with any shop' });
-      }
-
-      const newCustomer = {
-        ...customerData,
-        shop_id: shopId,
-      };
+      const customerData = stripOwnershipFields(req.body);
 
       const { data, error } = await userClient
         .from('customers')
-        .insert(newCustomer)
+        .insert(customerData)
         .select()
         .single();
 
@@ -580,22 +500,11 @@ export async function registerRoutes(
 
   app.get("/api/payments", requireAuth, async (req: Request, res: Response) => {
     try {
-      const shopId = getUserShopId(req);
       const userClient = getUserClient(req);
-
-      if (!shopId) {
-        return res.status(403).json({ error: 'User not associated with any shop' });
-      }
-
-      // Get payments for bookings in this shop - filtered by shop_id
       const { data: payments, error } = await userClient
         .from('payments')
-        .select(`
-          *,
-          booking:bookings!inner(id, shop_id)
-        `)
-        .eq('booking.shop_id', shopId)
-        .order('received_at', { ascending: false });
+        .select('*')
+        .order('created_at', { ascending: false });
 
       if (error) {
         throw error;
@@ -610,29 +519,8 @@ export async function registerRoutes(
 
   app.post("/api/payments", requireAuth, async (req: Request, res: Response) => {
     try {
-      const shopId = getUserShopId(req);
       const userClient = getUserClient(req);
-
-      if (!shopId) {
-        return res.status(403).json({ error: 'User not associated with any shop' });
-      }
-
-      // Verify booking belongs to user's shop before creating payment
-      if (req.body.booking_id) {
-        const { data: booking, error: bookingError } = await userClient
-          .from('bookings')
-          .select('shop_id')
-          .eq('id', req.body.booking_id)
-          .eq('shop_id', shopId)
-          .single();
-
-        if (bookingError || !booking) {
-          return res.status(403).json({ error: 'Booking not found or access denied' });
-        }
-      }
-
-      // CRITICAL: Enforce shop_id from authenticated user - NEVER accept from request body
-      const paymentData = enforceShopIdInInsert(req, req.body);
+      const paymentData = stripOwnershipFields(req.body);
 
       const { data, error } = await userClient
         .from('payments')
@@ -657,21 +545,10 @@ export async function registerRoutes(
 
   app.get("/api/deposits", requireAuth, async (req: Request, res: Response) => {
     try {
-      const shopId = getUserShopId(req);
       const userClient = getUserClient(req);
-
-      if (!shopId) {
-        return res.status(403).json({ error: 'User not associated with any shop' });
-      }
-
-      // Get deposits for bookings in this shop - filtered by shop_id
       const { data: deposits, error } = await userClient
         .from('deposits')
-        .select(`
-          *,
-          booking:bookings!inner(id, shop_id)
-        `)
-        .eq('booking.shop_id', shopId)
+        .select('*')
         .order('created_at', { ascending: false });
 
       if (error) {
@@ -687,29 +564,8 @@ export async function registerRoutes(
 
   app.post("/api/deposits", requireAuth, async (req: Request, res: Response) => {
     try {
-      const shopId = getUserShopId(req);
       const userClient = getUserClient(req);
-
-      if (!shopId) {
-        return res.status(403).json({ error: 'User not associated with any shop' });
-      }
-
-      // Verify booking belongs to user's shop before creating deposit
-      if (req.body.booking_id) {
-        const { data: booking, error: bookingError } = await userClient
-          .from('bookings')
-          .select('shop_id')
-          .eq('id', req.body.booking_id)
-          .eq('shop_id', shopId)
-          .single();
-
-        if (bookingError || !booking) {
-          return res.status(403).json({ error: 'Booking not found or access denied' });
-        }
-      }
-
-      // CRITICAL: Enforce shop_id from authenticated user - NEVER accept from request body
-      const depositData = enforceShopIdInInsert(req, req.body);
+      const depositData = stripOwnershipFields(req.body);
 
       const { data, error } = await userClient
         .from('deposits')
@@ -730,30 +586,9 @@ export async function registerRoutes(
 
   app.patch("/api/deposits/:id", requireAuth, async (req: Request, res: Response) => {
     try {
-      const shopId = getUserShopId(req);
       const depositId = req.params.id;
-      const updates = req.body;
+      const updates = stripOwnershipFields(req.body);
       const userClient = getUserClient(req);
-
-      if (!shopId) {
-        return res.status(403).json({ error: 'User not associated with any shop' });
-      }
-
-      // Update only if deposit belongs to user's shop (data scoping)
-      // First verify the deposit belongs to this shop
-      const { data: existingDeposit, error: fetchError } = await userClient
-        .from('deposits')
-        .select(`
-          *,
-          booking:bookings(shop_id)
-        `)
-        .eq('id', depositId)
-        .single();
-
-      if (fetchError || !existingDeposit || existingDeposit.booking?.shop_id !== shopId) {
-        return res.status(403).json({ error: 'Deposit not found or access denied' });
-      }
-
       const { data, error } = await userClient
         .from('deposits')
         .update(updates)
@@ -778,22 +613,11 @@ export async function registerRoutes(
 
   app.get("/api/damages", requireAuth, async (req: Request, res: Response) => {
     try {
-      const shopId = getUserShopId(req);
       const userClient = getUserClient(req);
-
-      if (!shopId) {
-        return res.status(403).json({ error: 'User not associated with any shop' });
-      }
-
-      // Get damages for bookings in this shop - filtered by shop_id
       const { data: damages, error } = await userClient
         .from('damages')
-        .select(`
-          *,
-          booking:bookings!inner(id, shop_id)
-        `)
-        .eq('booking.shop_id', shopId)
-        .order('created_at', { ascending: false });
+        .select('*')
+        .order('reported_at', { ascending: false });
 
       if (error) {
         throw error;
@@ -808,29 +632,8 @@ export async function registerRoutes(
 
   app.post("/api/damages", requireAuth, async (req: Request, res: Response) => {
     try {
-      const shopId = getUserShopId(req);
       const userClient = getUserClient(req);
-
-      if (!shopId) {
-        return res.status(403).json({ error: 'User not associated with any shop' });
-      }
-
-      // Verify booking belongs to user's shop before creating damage
-      if (req.body.booking_id) {
-        const { data: booking, error: bookingError } = await userClient
-          .from('bookings')
-          .select('shop_id')
-          .eq('id', req.body.booking_id)
-          .eq('shop_id', shopId)
-          .single();
-
-        if (bookingError || !booking) {
-          return res.status(403).json({ error: 'Booking not found or access denied' });
-        }
-      }
-
-      // CRITICAL: Enforce shop_id from authenticated user - NEVER accept from request body
-      const damageData = enforceShopIdInInsert(req, req.body);
+      const damageData = stripOwnershipFields(req.body);
 
       const { data, error } = await userClient
         .from('damages')
@@ -851,30 +654,9 @@ export async function registerRoutes(
 
   app.patch("/api/damages/:id", requireAuth, async (req: Request, res: Response) => {
     try {
-      const shopId = getUserShopId(req);
       const damageId = req.params.id;
-      const updates = req.body;
+      const updates = stripOwnershipFields(req.body);
       const userClient = getUserClient(req);
-
-      if (!shopId) {
-        return res.status(403).json({ error: 'User not associated with any shop' });
-      }
-
-      // Update only if damage belongs to user's shop (data scoping)
-      // First verify the damage belongs to this shop
-      const { data: existingDamage, error: fetchError } = await userClient
-        .from('damages')
-        .select(`
-          *,
-          booking:bookings(shop_id)
-        `)
-        .eq('id', damageId)
-        .single();
-
-      if (fetchError || !existingDamage || existingDamage.booking?.shop_id !== shopId) {
-        return res.status(403).json({ error: 'Damage not found or access denied' });
-      }
-
       const { data, error } = await userClient
         .from('damages')
         .update(updates)

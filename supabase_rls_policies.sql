@@ -1,194 +1,30 @@
-/**
- * SUPABASE RLS POLICIES REQUIRED FOR MULTI-TENANT ISOLATION
- * 
- * These policies MUST be created in Supabase console for each table
- */
+-- PER-USER ISOLATION POLICIES
+CREATE POLICY "bookings_select_owner" ON bookings FOR SELECT USING (user_id = auth.uid());
+CREATE POLICY "bookings_insert_owner" ON bookings FOR INSERT WITH CHECK (user_id = auth.uid());
+CREATE POLICY "bookings_update_owner" ON bookings FOR UPDATE USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
+CREATE POLICY "bookings_delete_owner" ON bookings FOR DELETE USING (user_id = auth.uid());
 
--- BOOKINGS TABLE RLS
--- Allow users to see bookings from their own shop
-CREATE POLICY "users_can_read_own_shop_bookings" 
-ON bookings 
-FOR SELECT 
-TO authenticated 
-USING (
-  shop_id = (
-    SELECT id FROM rental_shops 
-    WHERE owner_id = auth.uid()
-    LIMIT 1
-  )
-);
+CREATE POLICY "vehicles_select_owner" ON vehicles FOR SELECT USING (user_id = auth.uid());
+CREATE POLICY "vehicles_insert_owner" ON vehicles FOR INSERT WITH CHECK (user_id = auth.uid());
+CREATE POLICY "vehicles_update_owner" ON vehicles FOR UPDATE USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
+CREATE POLICY "vehicles_delete_owner" ON vehicles FOR DELETE USING (user_id = auth.uid());
 
--- Allow users to insert bookings to their shop
-CREATE POLICY "users_can_insert_own_shop_bookings" 
-ON bookings 
-FOR INSERT 
-TO authenticated 
-WITH CHECK (
-  shop_id = (
-    SELECT id FROM rental_shops 
-    WHERE owner_id = auth.uid()
-    LIMIT 1
-  )
-);
+CREATE POLICY "customers_select_owner" ON customers FOR SELECT USING (user_id = auth.uid());
+CREATE POLICY "customers_insert_owner" ON customers FOR INSERT WITH CHECK (user_id = auth.uid());
+CREATE POLICY "customers_update_owner" ON customers FOR UPDATE USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
+CREATE POLICY "customers_delete_owner" ON customers FOR DELETE USING (user_id = auth.uid());
 
--- Allow users to update bookings in their shop
-CREATE POLICY "users_can_update_own_shop_bookings" 
-ON bookings 
-FOR UPDATE 
-TO authenticated 
-USING (
-  shop_id = (
-    SELECT id FROM rental_shops 
-    WHERE owner_id = auth.uid()
-    LIMIT 1
-  )
-);
+CREATE POLICY "payments_select_owner" ON payments FOR SELECT USING (user_id = auth.uid());
+CREATE POLICY "payments_insert_owner" ON payments FOR INSERT WITH CHECK (user_id = auth.uid());
+CREATE POLICY "payments_update_owner" ON payments FOR UPDATE USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
+CREATE POLICY "payments_delete_owner" ON payments FOR DELETE USING (user_id = auth.uid());
 
--- VEHICLES TABLE RLS
-CREATE POLICY "users_can_read_own_shop_vehicles" 
-ON vehicles 
-FOR SELECT 
-TO authenticated 
-USING (
-  shop_id = (
-    SELECT id FROM rental_shops 
-    WHERE owner_id = auth.uid()
-    LIMIT 1
-  )
-);
+CREATE POLICY "deposits_select_owner" ON deposits FOR SELECT USING (user_id = auth.uid());
+CREATE POLICY "deposits_insert_owner" ON deposits FOR INSERT WITH CHECK (user_id = auth.uid());
+CREATE POLICY "deposits_update_owner" ON deposits FOR UPDATE USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
+CREATE POLICY "deposits_delete_owner" ON deposits FOR DELETE USING (user_id = auth.uid());
 
-CREATE POLICY "users_can_insert_own_shop_vehicles" 
-ON vehicles 
-FOR INSERT 
-TO authenticated 
-WITH CHECK (
-  shop_id = (
-    SELECT id FROM rental_shops 
-    WHERE owner_id = auth.uid()
-    LIMIT 1
-  )
-);
-
-CREATE POLICY "users_can_update_own_shop_vehicles" 
-ON vehicles 
-FOR UPDATE 
-TO authenticated 
-USING (
-  shop_id = (
-    SELECT id FROM rental_shops 
-    WHERE owner_id = auth.uid()
-    LIMIT 1
-  )
-);
-
--- CUSTOMERS TABLE RLS
-CREATE POLICY "users_can_read_own_shop_customers" 
-ON customers 
-FOR SELECT 
-TO authenticated 
-USING (
-  shop_id = (
-    SELECT id FROM rental_shops 
-    WHERE owner_id = auth.uid()
-    LIMIT 1
-  )
-);
-
-CREATE POLICY "users_can_insert_own_shop_customers" 
-ON customers 
-FOR INSERT 
-TO authenticated 
-WITH CHECK (
-  shop_id = (
-    SELECT id FROM rental_shops 
-    WHERE owner_id = auth.uid()
-    LIMIT 1
-  )
-);
-
-CREATE POLICY "users_can_update_own_shop_customers" 
-ON customers 
-FOR UPDATE 
-TO authenticated 
-USING (
-  shop_id = (
-    SELECT id FROM rental_shops 
-    WHERE owner_id = auth.uid()
-    LIMIT 1
-  )
-);
-
--- PAYMENTS TABLE RLS
-CREATE POLICY "users_can_read_own_shop_payments" 
-ON payments 
-FOR SELECT 
-TO authenticated 
-USING (
-  shop_id = (
-    SELECT id FROM rental_shops 
-    WHERE owner_id = auth.uid()
-    LIMIT 1
-  )
-);
-
-CREATE POLICY "users_can_insert_own_shop_payments" 
-ON payments 
-FOR INSERT 
-TO authenticated 
-WITH CHECK (
-  shop_id = (
-    SELECT id FROM rental_shops 
-    WHERE owner_id = auth.uid()
-    LIMIT 1
-  )
-);
-
--- DEPOSITS TABLE RLS
-CREATE POLICY "users_can_read_own_shop_deposits" 
-ON deposits 
-FOR SELECT 
-TO authenticated 
-USING (
-  shop_id = (
-    SELECT id FROM rental_shops 
-    WHERE owner_id = auth.uid()
-    LIMIT 1
-  )
-);
-
-CREATE POLICY "users_can_insert_own_shop_deposits" 
-ON deposits 
-FOR INSERT 
-TO authenticated 
-WITH CHECK (
-  shop_id = (
-    SELECT id FROM rental_shops 
-    WHERE owner_id = auth.uid()
-    LIMIT 1
-  )
-);
-
--- DAMAGES TABLE RLS
-CREATE POLICY "users_can_read_own_shop_damages" 
-ON damages 
-FOR SELECT 
-TO authenticated 
-USING (
-  shop_id = (
-    SELECT id FROM rental_shops 
-    WHERE owner_id = auth.uid()
-    LIMIT 1
-  )
-);
-
-CREATE POLICY "users_can_insert_own_shop_damages" 
-ON damages 
-FOR INSERT 
-TO authenticated 
-WITH CHECK (
-  shop_id = (
-    SELECT id FROM rental_shops 
-    WHERE owner_id = auth.uid()
-    LIMIT 1
-  )
-);
+CREATE POLICY "damages_select_owner" ON damages FOR SELECT USING (user_id = auth.uid());
+CREATE POLICY "damages_insert_owner" ON damages FOR INSERT WITH CHECK (user_id = auth.uid());
+CREATE POLICY "damages_update_owner" ON damages FOR UPDATE USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
+CREATE POLICY "damages_delete_owner" ON damages FOR DELETE USING (user_id = auth.uid());

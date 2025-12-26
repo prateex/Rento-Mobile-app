@@ -1,13 +1,12 @@
 -- ============================================
 -- SUPABASE ROW LEVEL SECURITY (RLS) POLICIES
--- For Rento Bike Rental Management System
+-- PER-USER ISOLATION (STRICT)
 -- ============================================
 
--- IMPORTANT: These policies ensure that:
--- 1. Owners can only access data for their own shop
--- 2. Staff can only access data for their assigned shop
--- 3. No cross-shop data leakage is possible
--- 4. All queries use auth.uid() to verify ownership
+-- IMPORTANT:
+-- - All user-owned tables are isolated per authenticated user
+-- - Access requires user_id = auth.uid() for SELECT/INSERT/UPDATE/DELETE
+-- - No public access remains
 
 -- ============================================
 -- ENABLE RLS ON ALL TABLES
@@ -21,6 +20,16 @@ ALTER TABLE bookings ENABLE ROW LEVEL SECURITY;
 ALTER TABLE payments ENABLE ROW LEVEL SECURITY;
 ALTER TABLE deposits ENABLE ROW LEVEL SECURITY;
 ALTER TABLE damages ENABLE ROW LEVEL SECURITY;
+
+-- Drop existing policies on user-owned tables
+DO $$ DECLARE r record; BEGIN
+  FOR r IN SELECT polname FROM pg_policies WHERE schemaname='public' AND tablename='vehicles' LOOP EXECUTE format('DROP POLICY IF EXISTS %I ON vehicles', r.polname); END LOOP;
+  FOR r IN SELECT polname FROM pg_policies WHERE schemaname='public' AND tablename='customers' LOOP EXECUTE format('DROP POLICY IF EXISTS %I ON customers', r.polname); END LOOP;
+  FOR r IN SELECT polname FROM pg_policies WHERE schemaname='public' AND tablename='bookings' LOOP EXECUTE format('DROP POLICY IF EXISTS %I ON bookings', r.polname); END LOOP;
+  FOR r IN SELECT polname FROM pg_policies WHERE schemaname='public' AND tablename='payments' LOOP EXECUTE format('DROP POLICY IF EXISTS %I ON payments', r.polname); END LOOP;
+  FOR r IN SELECT polname FROM pg_policies WHERE schemaname='public' AND tablename='deposits' LOOP EXECUTE format('DROP POLICY IF EXISTS %I ON deposits', r.polname); END LOOP;
+  FOR r IN SELECT polname FROM pg_policies WHERE schemaname='public' AND tablename='damages' LOOP EXECUTE format('DROP POLICY IF EXISTS %I ON damages', r.polname); END LOOP;
+END $$;
 
 -- ============================================
 -- RENTAL SHOPS POLICIES
@@ -90,263 +99,49 @@ CREATE POLICY "Shop owners can delete staff"
 -- ============================================
 -- VEHICLES POLICIES
 -- ============================================
-
--- Users can view vehicles in their shop
-CREATE POLICY "Users can view vehicles in their shop"
-  ON vehicles FOR SELECT
-  USING (
-    shop_id IN (
-      SELECT shop_id FROM users WHERE auth_id = auth.uid()
-    )
-  );
-
--- Users can insert vehicles in their shop
-CREATE POLICY "Users can add vehicles to their shop"
-  ON vehicles FOR INSERT
-  WITH CHECK (
-    shop_id IN (
-      SELECT shop_id FROM users WHERE auth_id = auth.uid()
-    )
-  );
-
--- Users can update vehicles in their shop
-CREATE POLICY "Users can update vehicles in their shop"
-  ON vehicles FOR UPDATE
-  USING (
-    shop_id IN (
-      SELECT shop_id FROM users WHERE auth_id = auth.uid()
-    )
-  )
-  WITH CHECK (
-    shop_id IN (
-      SELECT shop_id FROM users WHERE auth_id = auth.uid()
-    )
-  );
-
--- Users can delete vehicles in their shop
-CREATE POLICY "Users can delete vehicles in their shop"
-  ON vehicles FOR DELETE
-  USING (
-    shop_id IN (
-      SELECT shop_id FROM users WHERE auth_id = auth.uid()
-    )
-  );
+CREATE POLICY "vehicles_select_owner" ON vehicles FOR SELECT USING (user_id = auth.uid());
+CREATE POLICY "vehicles_insert_owner" ON vehicles FOR INSERT WITH CHECK (user_id = auth.uid());
+CREATE POLICY "vehicles_update_owner" ON vehicles FOR UPDATE USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
+CREATE POLICY "vehicles_delete_owner" ON vehicles FOR DELETE USING (user_id = auth.uid());
 
 -- ============================================
 -- CUSTOMERS POLICIES
 -- ============================================
-
--- Users can view customers in their shop
-CREATE POLICY "Users can view customers in their shop"
-  ON customers FOR SELECT
-  USING (
-    shop_id IN (
-      SELECT shop_id FROM users WHERE auth_id = auth.uid()
-    )
-  );
-
--- Users can insert customers in their shop
-CREATE POLICY "Users can add customers to their shop"
-  ON customers FOR INSERT
-  WITH CHECK (
-    shop_id IN (
-      SELECT shop_id FROM users WHERE auth_id = auth.uid()
-    )
-  );
-
--- Users can update customers in their shop
-CREATE POLICY "Users can update customers in their shop"
-  ON customers FOR UPDATE
-  USING (
-    shop_id IN (
-      SELECT shop_id FROM users WHERE auth_id = auth.uid()
-    )
-  )
-  WITH CHECK (
-    shop_id IN (
-      SELECT shop_id FROM users WHERE auth_id = auth.uid()
-    )
-  );
-
--- Users can delete customers in their shop
-CREATE POLICY "Users can delete customers in their shop"
-  ON customers FOR DELETE
-  USING (
-    shop_id IN (
-      SELECT shop_id FROM users WHERE auth_id = auth.uid()
-    )
-  );
+CREATE POLICY "customers_select_owner" ON customers FOR SELECT USING (user_id = auth.uid());
+CREATE POLICY "customers_insert_owner" ON customers FOR INSERT WITH CHECK (user_id = auth.uid());
+CREATE POLICY "customers_update_owner" ON customers FOR UPDATE USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
+CREATE POLICY "customers_delete_owner" ON customers FOR DELETE USING (user_id = auth.uid());
 
 -- ============================================
 -- BOOKINGS POLICIES
 -- ============================================
-
--- Users can view bookings in their shop
-CREATE POLICY "Users can view bookings in their shop"
-  ON bookings FOR SELECT
-  USING (
-    shop_id IN (
-      SELECT shop_id FROM users WHERE auth_id = auth.uid()
-    )
-  );
-
--- Users can insert bookings in their shop
-CREATE POLICY "Users can create bookings in their shop"
-  ON bookings FOR INSERT
-  WITH CHECK (
-    shop_id IN (
-      SELECT shop_id FROM users WHERE auth_id = auth.uid()
-    )
-  );
-
--- Users can update bookings in their shop
-CREATE POLICY "Users can update bookings in their shop"
-  ON bookings FOR UPDATE
-  USING (
-    shop_id IN (
-      SELECT shop_id FROM users WHERE auth_id = auth.uid()
-    )
-  )
-  WITH CHECK (
-    shop_id IN (
-      SELECT shop_id FROM users WHERE auth_id = auth.uid()
-    )
-  );
-
--- Users can delete bookings in their shop (soft delete via status update preferred)
-CREATE POLICY "Users can delete bookings in their shop"
-  ON bookings FOR DELETE
-  USING (
-    shop_id IN (
-      SELECT shop_id FROM users WHERE auth_id = auth.uid()
-    )
-  );
+CREATE POLICY "bookings_select_owner" ON bookings FOR SELECT USING (user_id = auth.uid());
+CREATE POLICY "bookings_insert_owner" ON bookings FOR INSERT WITH CHECK (user_id = auth.uid());
+CREATE POLICY "bookings_update_owner" ON bookings FOR UPDATE USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
+CREATE POLICY "bookings_delete_owner" ON bookings FOR DELETE USING (user_id = auth.uid());
 
 -- ============================================
 -- PAYMENTS POLICIES
 -- ============================================
-
--- Users can view payments in their shop
-CREATE POLICY "Users can view payments in their shop"
-  ON payments FOR SELECT
-  USING (
-    shop_id IN (
-      SELECT shop_id FROM users WHERE auth_id = auth.uid()
-    )
-  );
-
--- Users can insert payments in their shop
-CREATE POLICY "Users can record payments in their shop"
-  ON payments FOR INSERT
-  WITH CHECK (
-    shop_id IN (
-      SELECT shop_id FROM users WHERE auth_id = auth.uid()
-    )
-  );
-
--- Users can update payments in their shop
-CREATE POLICY "Users can update payments in their shop"
-  ON payments FOR UPDATE
-  USING (
-    shop_id IN (
-      SELECT shop_id FROM users WHERE auth_id = auth.uid()
-    )
-  )
-  WITH CHECK (
-    shop_id IN (
-      SELECT shop_id FROM users WHERE auth_id = auth.uid()
-    )
-  );
-
--- Users can delete payments in their shop
-CREATE POLICY "Users can delete payments in their shop"
-  ON payments FOR DELETE
-  USING (
-    shop_id IN (
-      SELECT shop_id FROM users WHERE auth_id = auth.uid()
-    )
-  );
+CREATE POLICY "payments_select_owner" ON payments FOR SELECT USING (user_id = auth.uid());
+CREATE POLICY "payments_insert_owner" ON payments FOR INSERT WITH CHECK (user_id = auth.uid());
+CREATE POLICY "payments_update_owner" ON payments FOR UPDATE USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
+CREATE POLICY "payments_delete_owner" ON payments FOR DELETE USING (user_id = auth.uid());
 
 -- ============================================
 -- DEPOSITS POLICIES
 -- ============================================
-
--- Users can view deposits in their shop
-CREATE POLICY "Users can view deposits in their shop"
-  ON deposits FOR SELECT
-  USING (
-    shop_id IN (
-      SELECT shop_id FROM users WHERE auth_id = auth.uid()
-    )
-  );
-
--- Users can insert deposits in their shop
-CREATE POLICY "Users can create deposits in their shop"
-  ON deposits FOR INSERT
-  WITH CHECK (
-    shop_id IN (
-      SELECT shop_id FROM users WHERE auth_id = auth.uid()
-    )
-  );
-
--- Users can update deposits in their shop
-CREATE POLICY "Users can update deposits in their shop"
-  ON deposits FOR UPDATE
-  USING (
-    shop_id IN (
-      SELECT shop_id FROM users WHERE auth_id = auth.uid()
-    )
-  )
-  WITH CHECK (
-    shop_id IN (
-      SELECT shop_id FROM users WHERE auth_id = auth.uid()
-    )
-  );
+CREATE POLICY "deposits_select_owner" ON deposits FOR SELECT USING (user_id = auth.uid());
+CREATE POLICY "deposits_insert_owner" ON deposits FOR INSERT WITH CHECK (user_id = auth.uid());
+CREATE POLICY "deposits_update_owner" ON deposits FOR UPDATE USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
 
 -- ============================================
 -- DAMAGES POLICIES
 -- ============================================
-
--- Users can view damages for vehicles in their shop
-CREATE POLICY "Users can view damages in their shop"
-  ON damages FOR SELECT
-  USING (
-    shop_id IN (
-      SELECT shop_id FROM users WHERE auth_id = auth.uid()
-    )
-  );
-
--- Users can report damages for vehicles in their shop
-CREATE POLICY "Users can report damages in their shop"
-  ON damages FOR INSERT
-  WITH CHECK (
-    shop_id IN (
-      SELECT shop_id FROM users WHERE auth_id = auth.uid()
-    )
-  );
-
--- Users can update damages in their shop
-CREATE POLICY "Users can update damages in their shop"
-  ON damages FOR UPDATE
-  USING (
-    shop_id IN (
-      SELECT shop_id FROM users WHERE auth_id = auth.uid()
-    )
-  )
-  WITH CHECK (
-    shop_id IN (
-      SELECT shop_id FROM users WHERE auth_id = auth.uid()
-    )
-  );
-
--- Users can delete damages in their shop
-CREATE POLICY "Users can delete damages in their shop"
-  ON damages FOR DELETE
-  USING (
-    shop_id IN (
-      SELECT shop_id FROM users WHERE auth_id = auth.uid()
-    )
-  );
+CREATE POLICY "damages_select_owner" ON damages FOR SELECT USING (user_id = auth.uid());
+CREATE POLICY "damages_insert_owner" ON damages FOR INSERT WITH CHECK (user_id = auth.uid());
+CREATE POLICY "damages_update_owner" ON damages FOR UPDATE USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
+CREATE POLICY "damages_delete_owner" ON damages FOR DELETE USING (user_id = auth.uid());
 
 -- ============================================
 -- INDEXES FOR PERFORMANCE
@@ -378,11 +173,11 @@ CREATE INDEX IF NOT EXISTS idx_damages_vehicle_id ON damages(vehicle_id);
 -- 4. Verify RLS is enabled by checking Table Editor > [table] > Settings > RLS
 
 -- Security guarantees:
--- ✅ Users can only see data for their assigned shop
--- ✅ Cross-shop queries will return empty results
--- ✅ Attempts to insert/update data for other shops will fail
--- ✅ auth.uid() ensures user is authenticated
--- ✅ Service role key bypasses RLS (used by backend for admin operations)
+-- ✅ Users can only see their own data (user_id = auth.uid())
+-- ✅ Cross-user queries return empty results
+-- ✅ Attempts to insert/update other users' data will fail
+-- ✅ No policies use TRUE or auth.role() = 'authenticated'
+-- ✅ Service role key bypasses RLS (backend admin-only)
 
 -- Best practices:
 -- - Always use authenticated Supabase client on frontend

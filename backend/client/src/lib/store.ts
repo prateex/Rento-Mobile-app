@@ -1,6 +1,8 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { apiRequest } from './queryClient';
+import { supabase } from './supabase';
+import type { Session } from '@supabase/supabase-js';
 
 export type Role = 'admin' | 'staff' | 'owner';
 
@@ -120,6 +122,7 @@ export interface Booking {
 interface AppState {
   user: User | null;
   authToken: string | null;
+  session: Session | null;
   deviceId?: string;
   bikes: Bike[];
   customers: Customer[];
@@ -322,6 +325,8 @@ export const useStore = create<AppState>()(
   persist(
     (set, get) => ({
       user: null,
+      authToken: null,
+      session: null,
       bikes: MOCK_BIKES,
       customers: MOCK_CUSTOMERS,
       bookings: MOCK_BOOKINGS,
@@ -358,28 +363,65 @@ export const useStore = create<AppState>()(
 
       login: async (email: string, password: string): Promise<boolean> => {
         try {
-          const device_id = get().deviceId || get().getDeviceId();
-          const res = await apiRequest('POST', '/api/auth/login', { email, password, device_id });
-          const json = await res.json();
-          const token = json.token as string | undefined;
-          if (!token || !json.user) {
-            throw new Error('Invalid login response');
+          console.log('[Login] Attempting Supabase auth...');
+          
+          // Use Supabase directly for authentication
+          const { data, error } = await supabase.auth.signInWithPassword({
+            email,
+            password,
+          });
+
+          if (error) {
+            console.error('[Login] Supabase auth error:', error);
+            return false;
           }
+
+          if (!data.session || !data.user) {
+            console.error('[Login] No session or user returned');
+            return false;
+          }
+
+          console.log('[Login] Success:', { 
+            userId: data.user.id, 
+            email: data.user.email,
+            hasSession: !!data.session 
+          });
+
+          // Map Supabase user to app user
           const mappedUser: User = {
-            id: json.user.id,
-            name: json.user.full_name || json.user.email || 'User',
-            phone: json.user.phone || '',
-            role: (json.user.role || 'staff') as Role,
-            email: json.user.email || undefined,
+            id: data.user.id,
+            name: data.user.user_metadata?.full_name || data.user.email || 'User',
+            phone: data.user.user_metadata?.phone || '',
+            role: (data.user.user_metadata?.role || 'staff') as Role,
+            email: data.user.email || undefined,
           };
-          set({ user: mappedUser, authToken: token });
+
+          set({ 
+            user: mappedUser, 
+            authToken: data.session.access_token,
+            session: data.session 
+          });
+          
           return true;
         } catch (e) {
-          console.error('Login failed:', e);
+          console.error('[Login] Exception:', e);
           return false;
         }
       },
-      logout: () => set({ user: null }),
+      
+      logout: async () => {
+        try {
+          await supabase.auth.signOut();
+        } catch (e) {
+          console.error('[Logout] Error:', e);
+        }
+        try {
+          // Clear all client-side state and caches
+          sessionStorage.clear();
+          localStorage.clear();
+        } catch {}
+        set({ user: null, authToken: null, session: null, bikes: [], customers: [], bookings: [], users: [] });
+      },
 
       addBike: (bike) => set((state) => ({ bikes: [...state.bikes, bike] })),
       updateBike: (id, data) => set((state) => ({

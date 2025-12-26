@@ -8,6 +8,14 @@ const config: CapacitorConfig = {
     androidScheme: 'https',
     cleartext: true,
   },
+  android: {
+    allowNavigation: [
+      'capacitor://localhost',
+      'http://localhost',
+      'https://localhost',
+      '*',
+    ],
+  },
   plugins: {
     SplashScreen: {
       launchShowDuration: 0,

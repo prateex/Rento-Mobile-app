@@ -1,0 +1,3 @@
+-- This file is deprecated. Use supabase_schema.sql as the source of truth.
+-- The actual database schema is defined in supabase_schema.sql
+-- All required columns already exist in the production schema.

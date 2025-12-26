@@ -20,6 +20,8 @@ import { Calendar } from "@/components/ui/calendar";
 import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
 import { WhatsAppDialog } from "@/components/WhatsAppDialog";
+import { supabase } from "@/lib/supabase";
+import { logDbCall, printDbLogReport } from "@/lib/dbLogger";
 
 const getVehicleIcon = (type?: string) => {
   return type === 'car' ? <CarIcon size={16} /> : <BikeIcon size={16} />;
@@ -74,6 +76,52 @@ export default function Bookings() {
       setFilterCustomerId(qCustomer);
     } catch {}
   }, [location]);
+
+  // Fetch bookings from Supabase on mount
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data: sessionData } = await supabase.auth.getSession();
+        const uid = sessionData.session?.user?.id;
+        if (!uid) return;
+        
+        const { data: shops } = await supabase.from('rental_shops').select('id').limit(1);
+        const shopId = shops?.[0]?.id;
+        if (!shopId) return;
+        
+        const { data: rows, error } = await supabase
+          .from('bookings')
+          .select('id,booking_number,customer_id,vehicle_ids,start_time,end_time,total_amount,rent_amount,deposit_amount,advance_amount,balance_amount,payment_status,status,created_at')
+          .eq('shop_id', shopId)
+          .eq('user_id', uid);
+        
+        if (!error && Array.isArray(rows)) {
+          rows.forEach(row => {
+            if (!bookings.find(b => b.id === row.id)) {
+              addBooking({
+                id: row.id,
+                bookingNumber: row.booking_number || '',
+                bikeIds: Array.isArray(row.vehicle_ids) ? row.vehicle_ids : [],
+                customerId: row.customer_id || '',
+                startDate: row.start_time || new Date().toISOString(),
+                endDate: row.end_time || new Date().toISOString(),
+                rent: Number(row.rent_amount || 0),
+                deposit: Number(row.deposit_amount || 0),
+                totalAmount: Number(row.total_amount || 0),
+                status: row.status as any || 'Booked',
+                paymentStatus: row.payment_status as any || 'Unpaid',
+                advanceAmount: Number(row.advance_amount || 0),
+                remainingAmount: Number(row.balance_amount || 0),
+                history: []
+              });
+            }
+          });
+        }
+      } catch (e) {
+        console.error('Error fetching bookings:', e);
+      }
+    })();
+  }, [user]);
 
   const filteredBookings = useMemo(() => {
     const normalizedSearch = searchTerm.trim().toLowerCase();
@@ -164,7 +212,7 @@ export default function Bookings() {
     const [method, setMethod] = useState<'Cash' | 'UPI' | 'Other'>(booking.paymentMode || 'Cash');
     const balancePreview = Math.max(total - amount, 0);
 
-    const handleSaveAdvance = () => {
+    const handleSaveAdvance = async () => {
       if (!amount || amount <= 0) {
         toast({ title: "Advance Required", description: "Enter a valid advance amount.", variant: "destructive" });
         return;
@@ -174,18 +222,106 @@ export default function Bookings() {
         return;
       }
 
-      const history = Array.isArray(booking.history) ? booking.history : [];
-      updateBooking(booking.id, {
-        paymentStatus: 'Partial',
-        status: 'Confirmed',
-        advanceAmount: amount,
-        remainingAmount: balancePreview,
-        paymentMode: method,
-        paymentType: method,
-        history: [...history, { byUserId: user?.id || 'unknown', timestamp: new Date().toISOString(), changes: `Advance ₹${amount} via ${method}` }]
-      });
-      setPaymentFlow(null);
-      toast({ title: "Advance Saved", description: "Booking confirmed with advance payment." });
+      try {
+        const { data: sessionData } = await supabase.auth.getSession();
+        const uid = sessionData.session?.user?.id;
+        try { console.log("AUTH UID (Bookings:AdvancePayment)", uid); } catch {}
+        if (!uid) {
+          toast({ title: "Not Signed In", description: "Please sign in before recording payments.", variant: "destructive" });
+          return;
+        }
+        const { data: shops, error: shopErr } = await supabase
+          .from('rental_shops')
+          .select('id')
+          .eq('owner_id', uid)
+          .limit(1);
+        if (shopErr) {
+          toast({ title: "Shop Lookup Failed", description: shopErr.message, variant: "destructive" });
+          return;
+        }
+        const shop = shops && shops[0];
+        if (!shop?.id) {
+          toast({ title: "No Shop Found", description: "Associate account with a shop.", variant: "destructive" });
+          return;
+        }
+
+        const { data: userRecords, error: userErr } = await supabase
+          .from('users')
+          .select('id')
+          .eq('auth_id', uid)
+          .limit(1);
+        
+        if (userErr || !userRecords || userRecords.length === 0) {
+          toast({ title: "User Record Not Found", description: "Please contact support.", variant: "destructive" });
+          return;
+        }
+
+        const userId = userRecords[0].id;
+
+        const paymentPayload = {
+          shop_id: shop.id,
+          user_id: userId,
+          booking_id: booking.id,
+          amount: amount,
+          payment_method: method,
+          payment_type: 'Advance',
+          recorded_by: userId,
+          notes: null,
+        };
+
+        const { data: payRow, error: payErr } = await supabase
+          .from('payments')
+          .insert(paymentPayload)
+          .select('id')
+          .single();
+        
+        logDbCall({
+          file: 'Bookings.tsx',
+          function: 'handleRecordAdvancePayment',
+          operation: 'INSERT',
+          table: 'payments',
+          columns: ['id', 'shop_id', 'booking_id', 'amount', 'payment_method', 'payment_type', 'recorded_by', 'notes'],
+          payload: paymentPayload,
+          error: payErr?.message,
+          success: !payErr,
+        });
+        
+        if (payErr) {
+          toast({ title: "Payment Insert Failed", description: payErr.message, variant: "destructive" });
+          return;
+        }
+
+        const { data: updated, error: updErr } = await supabase
+          .from('bookings')
+          .update({
+            payment_status: 'Partial',
+            status: 'Confirmed',
+            advance_amount: amount,
+            balance_amount: balancePreview,
+          })
+          .eq('id', booking.id)
+          .select('id')
+          .single();
+        if (updErr) {
+          toast({ title: "Booking Update Failed", description: updErr.message, variant: "destructive" });
+          return;
+        }
+
+        const history = Array.isArray(booking.history) ? booking.history : [];
+        updateBooking(booking.id, {
+          paymentStatus: 'Partial',
+          status: 'Confirmed',
+          advanceAmount: amount,
+          remainingAmount: balancePreview,
+          paymentMode: method,
+          paymentType: method,
+          history: [...history, { byUserId: user?.id || 'unknown', timestamp: new Date().toISOString(), changes: `Advance ₹${amount} via ${method}` }]
+        });
+        setPaymentFlow(null);
+        toast({ title: "Advance Saved", description: "Booking confirmed with advance payment." });
+      } catch (e: any) {
+        toast({ title: "Unexpected Error", description: e?.message || String(e), variant: "destructive" });
+      }
     };
 
     return (
@@ -244,7 +380,7 @@ export default function Bookings() {
     const [method, setMethod] = useState<'Cash' | 'UPI' | 'Other'>(booking.paymentMode || 'Cash');
     const remainingAfterPayment = Math.max(balanceAmount - amount, 0);
 
-    const handleSavePayment = () => {
+    const handleSavePayment = async () => {
       if (!amount || amount <= 0) {
         toast({ title: "Amount Required", description: "Enter the amount received.", variant: "destructive" });
         return;
@@ -258,21 +394,95 @@ export default function Bookings() {
         return;
       }
 
-      const now = new Date().toISOString();
-      const history = Array.isArray(booking.history) ? booking.history : [];
-      updateBooking(booking.id, {
-        paymentStatus: 'Paid',
-        status: 'Confirmed',
-        paymentMode: method,
-        paymentType: method,
-        remainingAmount: remainingAfterPayment,
-        advanceAmount: previousAdvance || undefined,
-        paidAt: now,
-        paidBy: user?.id,
-        history: [...history, { byUserId: user?.id || 'unknown', timestamp: now, changes: `Full payment ₹${amount} via ${method}` }]
-      });
-      setPaymentFlow(null);
-      toast({ title: "Payment Recorded", description: remainingAfterPayment > 0 ? "Balance still pending." : "Booking marked as fully paid." });
+      try {
+        const { data: sessionData } = await supabase.auth.getSession();
+        const uid = sessionData.session?.user?.id;
+        try { console.log("AUTH UID (Bookings:FullPayment)", uid); } catch {}
+        if (!uid) {
+          toast({ title: "Not Signed In", description: "Please sign in before recording payments.", variant: "destructive" });
+          return;
+        }
+        const { data: shops, error: shopErr } = await supabase
+          .from('rental_shops')
+          .select('id')
+          .eq('owner_id', uid)
+          .limit(1);
+        if (shopErr) {
+          toast({ title: "Shop Lookup Failed", description: shopErr.message, variant: "destructive" });
+          return;
+        }
+        const shop = shops && shops[0];
+        if (!shop?.id) {
+          toast({ title: "No Shop Found", description: "Associate account with a shop.", variant: "destructive" });
+          return;
+        }
+
+        const { data: userRecords, error: userErr } = await supabase
+          .from('users')
+          .select('id')
+          .eq('auth_id', uid)
+          .limit(1);
+        
+        if (userErr || !userRecords || userRecords.length === 0) {
+          toast({ title: "User Record Not Found", description: "Please contact support.", variant: "destructive" });
+          return;
+        }
+
+        const userId = userRecords[0].id;
+
+        const { data: payRow, error: payErr } = await supabase
+          .from('payments')
+          .insert({
+            shop_id: shop.id,
+            user_id: userId,
+            booking_id: booking.id,
+            amount: amount,
+            payment_method: method,
+            payment_type: 'Full',
+            recorded_by: userId,
+            notes: null,
+          })
+          .select('id')
+          .single();
+        if (payErr) {
+          toast({ title: "Payment Insert Failed", description: payErr.message, variant: "destructive" });
+          return;
+        }
+
+        const { data: updated, error: updErr } = await supabase
+          .from('bookings')
+          .update({
+            payment_status: 'Paid',
+            status: 'Confirmed',
+            advance_amount: previousAdvance || 0,
+            balance_amount: 0,
+          })
+          .eq('id', booking.id)
+          .select('id')
+          .single();
+        if (updErr) {
+          toast({ title: "Booking Update Failed", description: updErr.message, variant: "destructive" });
+          return;
+        }
+
+        const now = new Date().toISOString();
+        const history = Array.isArray(booking.history) ? booking.history : [];
+        updateBooking(booking.id, {
+          paymentStatus: 'Paid',
+          status: 'Confirmed',
+          paymentMode: method,
+          paymentType: method,
+          remainingAmount: remainingAfterPayment,
+          advanceAmount: previousAdvance || undefined,
+          paidAt: now,
+          paidBy: user?.id,
+          history: [...history, { byUserId: user?.id || 'unknown', timestamp: now, changes: `Full payment ₹${amount} via ${method}` }]
+        });
+        setPaymentFlow(null);
+        toast({ title: "Payment Recorded", description: remainingAfterPayment > 0 ? "Balance still pending." : "Booking marked as fully paid." });
+      } catch (e: any) {
+        toast({ title: "Unexpected Error", description: e?.message || String(e), variant: "destructive" });
+      }
     };
 
     return (
@@ -503,7 +713,7 @@ export default function Bookings() {
       }
     };
 
-    const onSubmit = (data: any) => {
+    const onSubmit = async (data: any) => {
       const startDateTime = getStartDateTime();
       const endDateTime = getEndDateTime();
       if (!startDateTime || !endDateTime) {
@@ -563,23 +773,99 @@ export default function Bookings() {
         });
         toast({ title: "Booking Updated", description: "Changes saved." });
       } else {
-        const newBooking: Booking = {
-          id: Math.random().toString(36).substr(2, 9),
-          bookingNumber: getNextBookingNumber(),
-          bikeIds: data.bikeIds,
-          customerId: data.customerId,
-          startDate: startDateISO,
-          endDate: endDateISO,
-          rent: Number(data.rent),
-          deposit: Number(data.deposit),
-          totalAmount: total,
-          status: 'Booked',
-          paymentStatus: 'Unpaid',
-          remainingAmount: total,
-          history: []
-        };
-        addBooking(newBooking);
-        toast({ title: "Booking Created", description: "Reservation saved as unpaid." });
+        try {
+          const { data: sessionData } = await supabase.auth.getSession();
+          const uid = sessionData.session?.user?.id;
+          try { console.log("AUTH UID (Bookings:CreateBooking)", uid); } catch {}
+          if (!uid) {
+            toast({ title: "Not Signed In", description: "Please sign in before creating bookings.", variant: "destructive" });
+            return;
+          }
+
+          const { data: shops, error: shopErr } = await supabase
+            .from('rental_shops')
+            .select('id')
+            .eq('owner_id', uid)
+            .limit(1);
+          if (shopErr) {
+            toast({ title: "Shop Lookup Failed", description: shopErr.message, variant: "destructive" });
+            return;
+          }
+          const shop = shops && shops[0];
+          if (!shop?.id) {
+            toast({ title: "No Shop Found", description: "You must own a rental shop to create bookings.", variant: "destructive" });
+            return;
+          }
+
+          const { data: userRecords, error: userErr } = await supabase
+            .from('users')
+            .select('id')
+            .eq('auth_id', uid)
+            .limit(1);
+          
+          if (userErr || !userRecords || userRecords.length === 0) {
+            toast({ title: "User Record Not Found", description: "Please contact support.", variant: "destructive" });
+            return;
+          }
+
+          // created_by may be nullable in current DB; avoid hard dependency on users table
+          const userId = userRecords && userRecords[0]?.id ? userRecords[0].id : null;
+
+          const payload = {
+            shop_id: shop.id,
+            user_id: uid,
+            booking_number: getNextBookingNumber(),
+            customer_id: data.customerId,
+            vehicle_ids: data.bikeIds,
+            start_time: startDateISO,
+            end_time: endDateISO,
+            status: 'Confirmed',
+            rent_amount: Number(data.rent) || 0,
+            total_amount: total,
+            advance_amount: 0,
+            balance_amount: total,
+            // created_by is optional on current DB; omit if not available
+            ...(userId ? { created_by: userId } : {}),
+            notes: null,
+          };
+
+          const { data: inserted, error } = await supabase
+            .from('bookings')
+            .insert(payload)
+            .select('id, booking_number, customer_id, vehicle_ids, start_time, end_time, total_amount, advance_amount, balance_amount, payment_status, status')
+            .single();
+
+          if (error) {
+            toast({ title: "Insert Failed", description: error.message, variant: "destructive" });
+            return;
+          }
+
+          const newBooking: Booking = {
+            id: inserted.id,
+            bookingNumber: inserted.booking_number,
+            bikeIds: Array.isArray(inserted.vehicle_ids) ? inserted.vehicle_ids : [],
+            customerId: inserted.customer_id,
+            startDate: inserted.start_time,
+            endDate: inserted.end_time,
+            rent: Number(data.rent),
+            deposit: Number(data.deposit),
+            totalAmount: Number(inserted.total_amount),
+            status: inserted.status === 'Confirmed' ? 'Booked' : inserted.status,
+            paymentStatus: inserted.payment_status,
+            remainingAmount: Number(inserted.balance_amount),
+            history: []
+          };
+
+          addBooking(newBooking);
+
+          const { count } = await supabase
+            .from('bookings')
+            .select('id', { count: 'exact', head: true });
+          toast({ title: "Booking Created", description: `Saved to database. Total bookings: ${count ?? 'n/a'}.` });
+        } catch (e: any) {
+          toast({ title: "Unexpected Error", description: e?.message || String(e), variant: "destructive" });
+          return;
+        }
       }
       onClose();
     };
@@ -988,17 +1274,67 @@ export default function Bookings() {
     const { register, handleSubmit, watch, setValue } = useForm<Customer>();
     const idType = watch('idType', 'Aadhaar');
 
-    const onSubmit = (data: any) => {
-       const newCustomer = { 
-         ...data, 
-         id: Math.random().toString(36).substr(2, 9), 
-         status: 'Verified',
-         dateAdded: new Date().toISOString(),
-         idPhotos: { front: 'mock-url' } // Mock upload
-       };
-       addCustomer(newCustomer);
-       setIsAddCustomerOpen(false);
-       toast({ title: "Customer Added", description: "New customer created." });
+    const onSubmit = async (data: any) => {
+      try {
+        const { data: sessionData } = await supabase.auth.getSession();
+        const uid = sessionData.session?.user?.id;
+        try { console.log("AUTH UID (Bookings:AddCustomer)", uid); } catch {}
+        if (!uid) {
+          toast({ title: "Not Signed In", description: "Please sign in before adding customers.", variant: "destructive" });
+          return;
+        }
+        const { data: shops, error: shopError } = await supabase
+          .from('rental_shops')
+          .select('id')
+          .limit(1);
+        if (shopError) {
+          toast({ title: "Shop Lookup Failed", description: shopError.message, variant: "destructive" });
+          return;
+        }
+        const shopId = shops && shops[0]?.id;
+        if (!shopId) {
+          toast({ title: "No Shop Found", description: "Create a shop before adding customers.", variant: "destructive" });
+          return;
+        }
+        const payload = {
+          shop_id: shopId,
+          user_id: uid,
+          full_name: data.name,
+          phone: data.phone,
+          email: null,
+          address: null,
+          id_type: data.idType || 'Aadhaar',
+          id_photos: { front: 'mock-url' },
+          documents: null,
+          status: 'Verified',
+          notes: null,
+        };
+        const { data: inserted, error } = await supabase
+          .from('customers')
+          .insert(payload)
+          .select('id,full_name,phone,id_type,id_photos,status,created_at')
+          .single();
+        if (error) {
+          toast({ title: "Insert Failed", description: error.message, variant: "destructive" });
+          return;
+        }
+        addCustomer({
+          id: inserted.id,
+          name: inserted.full_name,
+          phone: inserted.phone,
+          idType: inserted.id_type,
+          idPhotos: inserted.id_photos || { front: 'mock-url' },
+          status: inserted.status || 'Verified',
+          dateAdded: inserted.created_at || new Date().toISOString(),
+        });
+        setIsAddCustomerOpen(false);
+        const { count } = await supabase
+          .from('customers')
+          .select('id', { count: 'exact', head: true });
+        toast({ title: "Customer Added", description: `New customer saved. Total customers: ${count ?? 'n/a'}.` });
+      } catch (e: any) {
+        toast({ title: "Unexpected Error", description: e?.message || String(e), variant: "destructive" });
+      }
     };
 
     return (
