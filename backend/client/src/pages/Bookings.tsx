@@ -32,7 +32,7 @@ const getVehicleLabel = (type?: string) => {
 };
 
 export default function Bookings() {
-  const { bookings, bikes, customers, addBooking, updateBooking, deleteBooking, cancelBooking, returnBooking, markBookingAsTaken, user, addCustomer, settings, updateBike, whatsappTemplates } = useStore();
+  const { bookings, bikes, customers, addBooking, updateBooking, deleteBooking, user, settings, updateBike, whatsappTemplates } = useStore();
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [editingBooking, setEditingBooking] = useState<Booking | null>(null);
   const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null);
@@ -77,6 +77,44 @@ export default function Bookings() {
     } catch {}
   }, [location]);
 
+  const mapDbStatusToUi = (dbStatus: string): Booking['status'] => {
+    switch (dbStatus) {
+      case 'Taken':
+        return 'Active';
+      case 'Returned':
+        return 'Completed';
+      case 'Cancelled':
+        return 'Cancelled';
+      case 'Confirmed':
+      default:
+        return 'Confirmed';
+    }
+  };
+
+  const getAuthContext = async () => {
+    const { data: sessionData } = await supabase.auth.getSession();
+    const uid = sessionData.session?.user?.id;
+    if (!uid) throw new Error('Not signed in');
+
+    const { data: shops, error: shopErr } = await supabase
+      .from('rental_shops')
+      .select('id')
+      .eq('owner_id', uid)
+      .limit(1);
+    if (shopErr) throw new Error(shopErr.message);
+    const shopId = shops?.[0]?.id;
+    if (!shopId) throw new Error('No shop found for user');
+
+    const { data: userRecords, error: userErr } = await supabase
+      .from('users')
+      .select('id')
+      .eq('auth_id', uid)
+      .limit(1);
+    if (userErr || !userRecords || userRecords.length === 0) throw new Error('User record not found');
+
+    return { uid, shopId, userId: userRecords[0].id };
+  };
+
   // Fetch bookings from Supabase on mount
   useEffect(() => {
     (async () => {
@@ -91,7 +129,7 @@ export default function Bookings() {
         
         const { data: rows, error } = await supabase
           .from('bookings')
-          .select('id,booking_number,customer_id,vehicle_ids,start_time,end_time,total_amount,rent_amount,deposit_amount,advance_amount,balance_amount,payment_status,status,created_at')
+          .select('id,booking_number,customer_id,vehicle_ids,start_date,end_date,total_amount,advance_amount,balance_amount,payment_status,status,taken_at,returned_at,cancelled_at,opening_odometer,closing_odometer,invoice_number')
           .eq('shop_id', shopId)
           .eq('user_id', uid);
         
@@ -103,15 +141,21 @@ export default function Bookings() {
                 bookingNumber: row.booking_number || '',
                 bikeIds: Array.isArray(row.vehicle_ids) ? row.vehicle_ids : [],
                 customerId: row.customer_id || '',
-                startDate: row.start_time || new Date().toISOString(),
-                endDate: row.end_time || new Date().toISOString(),
-                rent: Number(row.rent_amount || 0),
-                deposit: Number(row.deposit_amount || 0),
+                startDate: row.start_date || new Date().toISOString(),
+                endDate: row.end_date || new Date().toISOString(),
+                rent: Number(row.total_amount || 0),
+                deposit: 0,
                 totalAmount: Number(row.total_amount || 0),
-                status: row.status as any || 'Booked',
+                status: mapDbStatusToUi(row.status as string),
                 paymentStatus: row.payment_status as any || 'Unpaid',
                 advanceAmount: Number(row.advance_amount || 0),
                 remainingAmount: Number(row.balance_amount || 0),
+                openingOdometer: row.opening_odometer ?? undefined,
+                closingOdometer: row.closing_odometer ?? undefined,
+                takenAt: row.taken_at ?? undefined,
+                returnedAt: row.returned_at ?? undefined,
+                cancelledAt: row.cancelled_at ?? undefined,
+                invoiceNumber: row.invoice_number ?? undefined,
                 history: []
               });
             }
@@ -200,6 +244,88 @@ export default function Bookings() {
     }
 
     setPaymentFlow({ booking, mode: 'full' });
+  };
+
+  const handleMarkTaken = async (booking: Booking, openingOdometer: number) => {
+    try {
+      const { shopId } = await getAuthContext();
+      const now = new Date().toISOString();
+      const { data, error } = await supabase
+        .from('bookings')
+        .update({
+          status: 'Taken',
+          opening_odometer: openingOdometer,
+          taken_at: now,
+        })
+        .eq('id', booking.id)
+        .select('status, opening_odometer, taken_at')
+        .single();
+
+      if (error) throw new Error(error.message);
+
+      updateBooking(booking.id, {
+        status: mapDbStatusToUi(data.status as string),
+        openingOdometer: data.opening_odometer ?? openingOdometer,
+        takenAt: data.taken_at ?? now,
+      });
+
+      await supabase
+        .from('vehicles')
+        .update({ status: 'Rented', current_odometer: openingOdometer })
+        .in('id', booking.bikeIds)
+        .eq('shop_id', shopId);
+    } catch (e: any) {
+      toast({ title: 'Mark Taken Failed', description: e?.message || String(e), variant: 'destructive' });
+      throw e;
+    }
+  };
+
+  const handleCancelBooking = async (booking: Booking) => {
+    try {
+      const { shopId } = await getAuthContext();
+      const now = new Date().toISOString();
+      const { data, error } = await supabase
+        .from('bookings')
+        .update({ status: 'Cancelled', cancelled_at: now })
+        .eq('id', booking.id)
+        .select('status, cancelled_at')
+        .single();
+      if (error) throw new Error(error.message);
+
+      updateBooking(booking.id, {
+        status: mapDbStatusToUi(data.status as string),
+        cancelledAt: data.cancelled_at ?? now,
+      });
+
+      await supabase
+        .from('vehicles')
+        .update({ status: 'Available' })
+        .in('id', booking.bikeIds)
+        .eq('shop_id', shopId);
+    } catch (e: any) {
+      toast({ title: 'Cancel Failed', description: e?.message || String(e), variant: 'destructive' });
+    }
+  };
+
+  const handleDeleteBooking = async (booking: Booking) => {
+    try {
+      const { shopId } = await getAuthContext();
+      const { error } = await supabase
+        .from('bookings')
+        .delete()
+        .eq('id', booking.id);
+      if (error) throw new Error(error.message);
+
+      deleteBooking(booking.id);
+
+      await supabase
+        .from('vehicles')
+        .update({ status: 'Available' })
+        .in('id', booking.bikeIds)
+        .eq('shop_id', shopId);
+    } catch (e: any) {
+      toast({ title: 'Delete Failed', description: e?.message || String(e), variant: 'destructive' });
+    }
   };
 
   const AdvancePaymentDialog = () => {
@@ -366,6 +492,64 @@ export default function Bookings() {
         </DialogFooter>
       </DialogContent>
     );
+  };
+
+  const handleReturnFlow = async (
+    booking: Booking,
+    updatedBooking: Partial<Booking>,
+    bikeUpdates: Array<{ bikeId: string; damages: Damage[]; lastClosingOdometer: number }>
+  ) => {
+    try {
+      const { shopId } = await getAuthContext();
+      const now = new Date().toISOString();
+
+      const { data, error } = await supabase
+        .from('bookings')
+        .update({
+          status: 'Returned',
+          payment_status: updatedBooking.paymentStatus || booking.paymentStatus,
+          closing_odometer: updatedBooking.closingOdometer,
+          returned_at: now,
+        })
+        .eq('id', booking.id)
+        .select('status, payment_status, closing_odometer, returned_at')
+        .single();
+
+      if (error) throw new Error(error.message);
+
+      updateBooking(booking.id, {
+        ...updatedBooking,
+        status: mapDbStatusToUi(data.status as string),
+        paymentStatus: data.payment_status as any,
+        closingOdometer: data.closing_odometer ?? updatedBooking.closingOdometer,
+        returnedAt: data.returned_at ?? now,
+      });
+
+      for (const { bikeId, damages, lastClosingOdometer } of bikeUpdates) {
+        const bike = bikes.find(b => b.id === bikeId);
+        const mergedDamages = bike ? [...(bike.damages || []), ...damages] : damages;
+        await supabase
+          .from('vehicles')
+          .update({
+            status: 'Available',
+            current_odometer: lastClosingOdometer,
+            damages: mergedDamages,
+          })
+          .eq('id', bikeId)
+          .eq('shop_id', shopId);
+
+        if (bike) {
+          updateBike(bikeId, {
+            damages: mergedDamages,
+            lastClosingOdometer: lastClosingOdometer,
+            status: 'Available'
+          });
+        }
+      }
+    } catch (e: any) {
+      toast({ title: 'Return Failed', description: e?.message || String(e), variant: 'destructive' });
+      throw e;
+    }
   };
 
   const FullPaymentDialog = () => {
@@ -817,22 +1001,21 @@ export default function Bookings() {
             booking_number: getNextBookingNumber(),
             customer_id: data.customerId,
             vehicle_ids: data.bikeIds,
-            start_time: startDateISO,
-            end_time: endDateISO,
+            start_date: startDateISO,
+            end_date: endDateISO,
             status: 'Confirmed',
-            rent_amount: Number(data.rent) || 0,
             total_amount: total,
             advance_amount: 0,
             balance_amount: total,
-            // created_by is optional on current DB; omit if not available
-            ...(userId ? { created_by: userId } : {}),
+            payment_status: 'Unpaid',
+            created_by: userId,
             notes: null,
           };
 
           const { data: inserted, error } = await supabase
             .from('bookings')
             .insert(payload)
-            .select('id, booking_number, customer_id, vehicle_ids, start_time, end_time, total_amount, advance_amount, balance_amount, payment_status, status')
+            .select('id, booking_number, customer_id, vehicle_ids, start_date, end_date, total_amount, advance_amount, balance_amount, payment_status, status, opening_odometer, closing_odometer, taken_at, returned_at, cancelled_at')
             .single();
 
           if (error) {
@@ -845,14 +1028,19 @@ export default function Bookings() {
             bookingNumber: inserted.booking_number,
             bikeIds: Array.isArray(inserted.vehicle_ids) ? inserted.vehicle_ids : [],
             customerId: inserted.customer_id,
-            startDate: inserted.start_time,
-            endDate: inserted.end_time,
+            startDate: inserted.start_date,
+            endDate: inserted.end_date,
             rent: Number(data.rent),
             deposit: Number(data.deposit),
             totalAmount: Number(inserted.total_amount),
-            status: inserted.status === 'Confirmed' ? 'Booked' : inserted.status,
+            status: mapDbStatusToUi(inserted.status as string),
             paymentStatus: inserted.payment_status,
             remainingAmount: Number(inserted.balance_amount),
+            openingOdometer: inserted.opening_odometer ?? undefined,
+            closingOdometer: inserted.closing_odometer ?? undefined,
+            takenAt: inserted.taken_at ?? undefined,
+            returnedAt: inserted.returned_at ?? undefined,
+            cancelledAt: inserted.cancelled_at ?? undefined,
             history: []
           };
 
@@ -1643,8 +1831,8 @@ export default function Bookings() {
                                  </Button>
                                  <Button variant="ghost" size="icon" className="h-6 w-6 text-red-300 hover:text-red-600" onClick={() => {
                                     if (confirm("Are you sure you want to delete this booking?")) {
-                                       deleteBooking(booking.id);
-                                       toast({ title: "Booking Deleted", description: "Record has been removed." });
+                                    handleDeleteBooking(booking);
+                                    toast({ title: "Booking Deleted", description: "Record has been removed." });
                                     }
                                  }}>
                                    <Trash2 size={12} />
@@ -1757,7 +1945,7 @@ export default function Bookings() {
                             className="h-[16.85px] min-h-0 px-[6px] py-[2px] text-[10px] leading-none rounded-md border border-red-200 text-red-500 hover:bg-red-50 flex items-center gap-[2px]"
                             onClick={() => {
                               if (confirm('Cancel this booking?')) {
-                                cancelBooking(booking.id);
+                                handleCancelBooking(booking);
                                 toast({ title: 'Booking Cancelled', description: 'Status updated.' });
                               }
                             }}
@@ -1784,23 +1972,12 @@ export default function Bookings() {
         customers={customers}
         onClose={() => setReturnFlowBooking(null)}
         onReturn={(updatedBooking, bikeUpdates) => {
-          // Update booking with return details
-          updateBooking(returnFlowBooking.id, updatedBooking);
-          
-          // Update bikes with new damages and lastClosingOdometer
-          bikeUpdates.forEach(({ bikeId, damages, lastClosingOdometer }) => {
-            const bike = bikes.find(b => b.id === bikeId);
-            if (bike) {
-              updateBike(bikeId, {
-                damages: [...(bike.damages || []), ...damages],
-                lastClosingOdometer,
-                status: 'Available'
-              });
-            }
-          });
-          
-          setReturnFlowBooking(null);
-          toast({ title: "Return Processed", description: "Booking return flow completed." });
+          handleReturnFlow(returnFlowBooking, updatedBooking, bikeUpdates)
+            .then(() => {
+              setReturnFlowBooking(null);
+              toast({ title: "Return Processed", description: "Booking return flow completed." });
+            })
+            .catch(() => {});
         }}
       />
     )}
@@ -1888,9 +2065,12 @@ export default function Bookings() {
                   return;
                 }
 
-                markBookingAsTaken(markedTakenBooking.id, odometer);
-                toast({ title: "Vehicle Taken", description: `Booking is now active with opening odometer: ${odometer} km` });
-                setMarkedTakenBooking(null);
+                handleMarkTaken(markedTakenBooking, odometer)
+                  .then(() => {
+                    toast({ title: "Vehicle Taken", description: `Booking is now active with opening odometer: ${odometer} km` });
+                    setMarkedTakenBooking(null);
+                  })
+                  .catch(() => {});
               }}
             >
               Mark as Taken
