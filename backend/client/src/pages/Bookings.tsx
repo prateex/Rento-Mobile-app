@@ -110,9 +110,28 @@ export default function Bookings() {
       .select('id')
       .eq('auth_id', uid)
       .limit(1);
-    if (userErr || !userRecords || userRecords.length === 0) throw new Error('User record not found');
 
-    return { uid, shopId, userId: userRecords[0].id };
+    if (userErr) throw new Error(userErr.message);
+
+    // Auto-create a users row if missing (auth_id is the source of truth)
+    let userId = userRecords && userRecords[0]?.id;
+    if (!userId) {
+      const profile = sessionData.session?.user;
+      const name = profile?.user_metadata?.full_name || profile?.email || 'User';
+      const phone = profile?.user_metadata?.phone || null;
+      const role = (profile?.user_metadata?.role as any) || 'staff';
+
+      const { data: inserted, error: insertErr } = await supabase
+        .from('users')
+        .insert({ auth_id: uid, name, phone, role })
+        .select('id')
+        .single();
+
+      if (insertErr) throw new Error(insertErr.message);
+      userId = inserted.id;
+    }
+
+    return { uid, shopId, userId };
   };
 
   // Fetch bookings from Supabase on mount
