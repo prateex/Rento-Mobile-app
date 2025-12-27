@@ -32,6 +32,7 @@ console.log('[MAIN] Starting initialization...');
     console.log('[MAIN] Loading Supabase...');
     const { supabase } = await import("./lib/supabase");
     const { useStore } = await import("./lib/store");
+    const { bootstrapUser } = await import("./lib/bootstrapUser");
     
     console.log('[MAIN] Supabase loaded, setting up auth...');
     
@@ -48,6 +49,13 @@ console.log('[MAIN] Starting initialization...');
           email: session.user.email || undefined,
         };
         useStore.setState({ user, authToken: session.access_token, session });
+
+        // Only run bootstrap when a sign-in occurs
+        if (event === 'SIGNED_IN') {
+          bootstrapUser()
+            .then((row) => console.log('[BOOTSTRAP] users row ready:', row?.id))
+            .catch((err) => console.error('[BOOTSTRAP] failed:', err));
+        }
       } else if (event === 'SIGNED_OUT') {
         useStore.setState({ user: null, authToken: null, session: null });
       }
