@@ -4,11 +4,15 @@
  */
 
 export const SCHEMA: Record<string, string[]> = {
-  rental_shops: ['id', 'owner_id', 'name', 'phone', 'email', 'address', 'gst_number', 'created_at', 'updated_at'],
+  rental_shops: ['id', 'owner_id', 'name', 'phone', 'email', 'address', 'gst_number', 'state', 'city', 'pincode', 'pickup_location_name', 'pickup_address', 'pickup_lat', 'pickup_lng', 'pickup_address_text', 'pickup_city', 'pickup_pincode', 'terms_and_conditions', 'created_at', 'updated_at'],
+  shop_pickup_points: ['id', 'shop_id', 'name', 'latitude', 'longitude', 'address_text', 'city', 'pincode', 'is_default', 'is_active', 'created_at'],
+  states: ['id', 'name', 'is_active', 'created_at', 'updated_at'],
+  cities: ['id', 'state_id', 'name', 'is_active', 'created_at', 'updated_at'],
+  pincodes: ['id', 'city_id', 'pincode', 'is_active', 'created_at', 'updated_at'],
   users: ['id', 'shop_id', 'auth_id', 'name', 'phone', 'role', 'is_active', 'created_at'],
-  vehicles: ['id', 'shop_id', 'name', 'registration_number', 'type', 'brand', 'model', 'year', 'color', 'image_url', 'daily_rate', 'status', 'current_odometer', 'documents', 'damages', 'created_at', 'updated_at', 'user_id'],
-  customers: ['id', 'shop_id', 'name', 'phone', 'email', 'address', 'id_type', 'id_photos', 'documents', 'status', 'notes', 'created_at', 'updated_at', 'user_id'],
-  bookings: ['id', 'shop_id', 'booking_number', 'customer_id', 'vehicle_ids', 'start_date', 'end_date', 'status', 'total_amount', 'advance_amount', 'balance_amount', 'payment_status', 'invoice_number', 'opening_odometer', 'closing_odometer', 'notes', 'created_by', 'created_at', 'updated_at', 'taken_at', 'returned_at', 'cancelled_at', 'user_id'],
+  vehicles: ['id', 'shop_id', 'name', 'registration_number', 'type', 'brand', 'model', 'year', 'image_url', 'daily_rate', 'status', 'opening_km', 'current_odometer', 'last_closing_odometer', 'documents', 'damages', 'created_at', 'updated_at', 'deleted_at', 'user_id', 'created_by', 'cc', 'segment', 'gear_type', 'category'],
+  customers: ['id', 'shop_id', 'customer_number', 'full_name', 'phone', 'email', 'address', 'city', 'state', 'pincode', 'id_type', 'id_photos', 'documents', 'status', 'notes', 'created_at', 'updated_at', 'deleted_at', 'user_id', 'created_by'],
+  bookings: ['id', 'shop_id', 'booking_number', 'customer_id', 'pickup_point_id', 'vehicle_ids', 'start_date', 'start_datetime', 'end_date', 'end_datetime', 'rent', 'deposit', 'total_amount', 'advance_amount', 'balance_amount', 'status', 'payment_status', 'payment_choice', 'payment_mode', 'payment_type', 'utr_number', 'start_image', 'end_image', 'opening_odometer', 'closing_odometer', 'damages_during_rental', 'deposit_deduction', 'damage_notes', 'invoice_number', 'invoice_generated_at', 'invoice_generated_by', 'refund_amount', 'history', 'taken_at', 'taken_by', 'returned_at', 'returned_by', 'paid_at', 'paid_by', 'cancelled_at', 'finalized', 'invoice_pending', 'invoice_locked', 'whatsapp_sent', 'created_at', 'updated_at', 'deleted_at', 'user_id', 'created_by', 'notes', 'payment_date', 'invoice_id'],
   payments: ['id', 'shop_id', 'booking_id', 'amount', 'payment_method', 'payment_type', 'transaction_id', 'notes', 'recorded_by', 'created_at', 'user_id'],
   damages: ['id', 'shop_id', 'vehicle_id', 'booking_id', 'type', 'severity', 'description', 'photo_urls', 'estimated_cost', 'actual_cost', 'reported_by', 'reported_at', 'repaired_at', 'user_id'],
   deposits: ['id', 'shop_id', 'booking_id', 'amount', 'status', 'refunded_amount', 'deducted_amount', 'reason', 'created_at', 'updated_at', 'user_id'],

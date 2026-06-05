@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import MobileLayout from "@/components/layout/MobileLayout";
 import { useStore, Booking, Customer, Bike, Damage, DamageType } from "@/lib/store";
+import { safeString, safeArray } from "@/lib/safe";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
@@ -56,7 +57,7 @@ export default function Bookings() {
   const [location] = useLocation();
 
   useEffect(() => {
-    if (location.includes("action=new")) {
+    if ((location || '').includes("action=new")) {
       setIsAddOpen(true);
     }
     // Read filter from query and persist
@@ -105,7 +106,11 @@ export default function Bookings() {
         const phoneMatch = (customer?.phone || '').replace(/\s+/g, '').includes(normalizedSearch.replace(/\s+/g, ''));
         return bookingMatch || nameMatch || phoneMatch;
       })
-      .sort((a, b) => new Date(b.startDate).getTime() - new Date(a.startDate).getTime());
+      .sort((a, b) => {
+        const dateA = a.startDate ? new Date(a.startDate).getTime() : 0;
+        const dateB = b.startDate ? new Date(b.startDate).getTime() : 0;
+        return dateB - dateA;
+      });
   }, [bookings, filterStatus, confirmedPaymentFilter, customers, searchTerm]);
 
   const filteredBookingsWithDate = useMemo(() => {
@@ -400,7 +405,7 @@ export default function Bookings() {
       
       return bikes.filter(bike => {
         if (bike.status === 'Maintenance') return false;
-        if (initialData?.bikeIds.includes(bike.id)) return true;
+        if (safeArray<string>(initialData?.bikeIds).includes(bike.id)) return true;
         // check blocked dates in range
         const blockedListRaw = localStorage.getItem('rento_blocked_dates');
         const blockedList: string[] = blockedListRaw ? JSON.parse(blockedListRaw) : [];
@@ -415,7 +420,7 @@ export default function Bookings() {
         const hasOverlap = bookings.some(b => 
           b.id !== initialData?.id &&
           b.status !== 'Deleted' && b.status !== 'Cancelled' && b.status !== 'Completed' &&
-          b.bikeIds.includes(bike.id) &&
+          safeArray<string>(b.bikeIds).includes(bike.id) &&
           !(new Date(b.endDate).getTime() <= startDT.getTime() || new Date(b.startDate).getTime() >= endDT.getTime())
         );
         return !hasOverlap;
@@ -465,7 +470,7 @@ export default function Bookings() {
           const diffDays = Math.max(1, Math.ceil((end - start) / (1000 * 60 * 60 * 24)));
           
           const totalDailyPrice = bikes
-             .filter(b => selectedBikeIds.includes(b.id))
+             .filter(b => safeArray<string>(selectedBikeIds).includes(b.id))
              .reduce((sum, b) => sum + b.pricePerDay, 0);
 
           const calcRent = diffDays * totalDailyPrice;
@@ -537,7 +542,7 @@ export default function Bookings() {
       const hasOverlap = bookings.some(b => 
         b.id !== initialData?.id &&
         b.status !== 'Deleted' && b.status !== 'Cancelled' && b.status !== 'Completed' &&
-        b.bikeIds.some(id => data.bikeIds.includes(id)) &&
+        safeArray<string>(b.bikeIds).some(id => safeArray<string>(data.bikeIds).includes(id)) &&
         !(new Date(b.endDate).getTime() <= start || new Date(b.startDate).getTime() >= end)
       );
 
@@ -587,7 +592,7 @@ export default function Bookings() {
     const toggleBikeSelection = (bikeId: string) => {
       const current = watch('bikeIds') || [];
       let newValue: string[];
-      if (current.includes(bikeId)) {
+      if (safeArray<string>(current).includes(bikeId)) {
         newValue = current.filter((id: string) => id !== bikeId);
       } else {
         newValue = [...current, bikeId];
@@ -827,7 +832,7 @@ export default function Bookings() {
                       <div key={bike.id} className="flex items-center space-x-2 p-2 hover:bg-zinc-100 rounded">
                         <Checkbox 
                           id={`bike-${bike.id}`} 
-                          checked={selectedBikeIds.includes(bike.id)}
+                          checked={safeArray<string>(selectedBikeIds).includes(bike.id)}
                           onCheckedChange={() => toggleBikeSelection(bike.id)}
                         />
                         <label
@@ -1045,7 +1050,7 @@ export default function Bookings() {
   const InvoiceDialog = () => {
      if (!invoiceBooking) return null;
      const customer = customers.find(c => c.id === invoiceBooking.customerId);
-     const bookingBikes = bikes.filter(b => invoiceBooking.bikeIds.includes(b.id));
+     const bookingBikes = bikes.filter(b => safeArray<string>(invoiceBooking.bikeIds).includes(b.id));
 
      const handleSavePdf = () => {
        updateBooking(invoiceBooking.id, {
@@ -1242,7 +1247,7 @@ export default function Bookings() {
           {filteredBookingsWithDate.length === 0 ? (
             <div className="text-center text-sm text-muted-foreground py-8">No bookings found</div>
           ) : filteredBookingsWithDate.map((booking) => {
-            const bookingBikes = bikes.filter(b => booking.bikeIds.includes(b.id));
+            const bookingBikes = bikes.filter(b => safeArray<string>(booking.bikeIds).includes(b.id));
             const customer = customers.find(c => c.id === booking.customerId);
             
             return (
@@ -1503,7 +1508,7 @@ export default function Bookings() {
                 <strong>Booking:</strong> {markedTakenBooking.bookingNumber}
               </p>
               <p className="text-sm text-muted-foreground">
-                <strong>Vehicle:</strong> {bikes.find(b => markedTakenBooking.bikeIds.includes(b.id))?.name || 'Unknown'}
+                <strong>Vehicle:</strong> {bikes.find(b => safeArray<string>(markedTakenBooking.bikeIds).includes(b.id))?.name || 'Unknown'}
               </p>
             </div>
 
@@ -1521,10 +1526,10 @@ export default function Bookings() {
               </p>
             </div>
 
-            {bikes.find(b => markedTakenBooking.bikeIds.includes(b.id))?.lastClosingOdometer !== undefined && (
+            {bikes.find(b => safeArray<string>(markedTakenBooking.bikeIds).includes(b.id))?.lastClosingOdometer !== undefined && (
               <div className="bg-blue-50 border border-blue-200 p-2 rounded-md text-sm">
                 <p className="text-xs text-muted-foreground">
-                  <strong>Last recorded:</strong> {bikes.find(b => markedTakenBooking.bikeIds.includes(b.id))?.lastClosingOdometer} km
+                  <strong>Last recorded:</strong> {bikes.find(b => safeArray<string>(markedTakenBooking.bikeIds).includes(b.id))?.lastClosingOdometer} km
                 </p>
               </div>
             )}
@@ -1586,7 +1591,7 @@ const ReturnFlowModal = ({ booking, bikes, customers, onClose, onReturn }: {
   const [showInvoice, setShowInvoice] = useState(false);
   const [lightboxPhoto, setLightboxPhoto] = useState<string | null>(null);
   
-  const bookingBikes = bikes.filter(b => booking.bikeIds.includes(b.id));
+  const bookingBikes = bikes.filter(b => safeArray<string>(booking.bikeIds).includes(b.id));
   const customer = customers.find(c => c.id === booking.customerId);
   const { toast } = useToast();
 

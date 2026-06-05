@@ -36,12 +36,17 @@ interface RevenueReportProps {
 }
 
 export default function RevenueReport({ open, onOpenChange }: RevenueReportProps) {
-  const { bookings } = useStore();
+  const { bookings, user } = useStore();
   const [period, setPeriod] = useState<PeriodType>('daily');
   const [customRange, setCustomRange] = useState<{ from: Date; to: Date }>({
     from: subDays(new Date(), 30),
     to: new Date()
   });
+  
+  // Only allow owners to access revenue report
+  if (user?.role !== 'owner') {
+    return null;
+  }
   
   const aggregatedData = useMemo((): AggregatedRevenue => {
     const now = new Date();

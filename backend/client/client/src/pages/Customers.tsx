@@ -23,8 +23,10 @@ export default function Customers() {
   const { toast } = useToast();
 
   const filteredCustomers = customers.filter(c => 
-    c.name.toLowerCase().includes(search.toLowerCase()) || 
-    c.phone.includes(search)
+    !c.deleted_at && (
+      (c.name || '').toLowerCase().includes(search.toLowerCase()) || 
+      (c.phone || '').includes(search)
+    )
   );
 
   const CustomerForm = ({ initialData, onClose }: { initialData?: Customer, onClose: () => void }) => {

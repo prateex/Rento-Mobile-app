@@ -1,6 +1,7 @@
 import { lazy, Suspense, useState } from "react";
 import MobileLayout from "@/components/layout/MobileLayout";
 import { useStore } from "@/lib/store";
+import { safeArray } from "@/lib/safe";
 import { Card, CardContent } from "@/components/ui/card";
 import { Bike, Calendar, TrendingUp, Plus, ArrowRight, EyeOff, CalendarDays, Car as CarIcon } from "lucide-react";
 import { Link } from "wouter";
@@ -29,20 +30,23 @@ export default function Dashboard() {
   const today = new Date();
   const dayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 0, 0, 0, 0);
   const dayEnd = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59, 999);
-  const isOnToday = (startISO: string, endISO: string) => {
+  const isOnToday = (startISO: string | undefined, endISO: string | undefined) => {
+    if (!startISO || !endISO) return false;
     const start = new Date(startISO);
     const end = new Date(endISO);
-    return start <= dayEnd && end > dayStart;
+    return isNaN(start.getTime()) || isNaN(end.getTime()) ? false : (start <= dayEnd && end > dayStart);
   };
   const bookedTodayBikeIds = new Set<string>();
   const activeTodayBikeIds = new Set<string>();
   bookings.forEach(b => {
-    if (b.status === 'Deleted' || b.status === 'Cancelled') return;
+    if (b.status === 'Deleted' || b.status === 'Cancelled' || b.deleted_at) return;
+    if (!b.startDate || !b.endDate) return;
     if (isOnToday(b.startDate, b.endDate)) {
+      const bikeIds = safeArray<string>(b.bikeIds);
       if (b.status === 'Active') {
-        b.bikeIds.forEach(id => activeTodayBikeIds.add(id));
+        bikeIds.forEach(id => activeTodayBikeIds.add(id));
       } else {
-        b.bikeIds.forEach(id => bookedTodayBikeIds.add(id));
+        bikeIds.forEach(id => bookedTodayBikeIds.add(id));
       }
     }
   });
@@ -52,7 +56,7 @@ export default function Dashboard() {
     totalBikes: bikes.length,
     available: Math.max(0, bikes.length - bookedTodayBikeIds.size - activeTodayBikeIds.size - maintenanceBikeIds.size),
     booked: bikes.filter(b => b.status === 'Booked').length,
-    revenue: bookings.filter(b => b.status !== 'Deleted' && b.status !== 'Cancelled').reduce((acc, curr) => acc + (curr.totalAmount || 0), 0)
+    revenue: bookings.filter(b => b.status !== 'Deleted' && b.status !== 'Cancelled' && !b.deleted_at).reduce((acc, curr) => acc + (curr.totalAmount || 0), 0)
   };
 
   return (
@@ -171,7 +175,7 @@ export default function Dashboard() {
           
           <div className="space-y-3">
             {bookings.filter(b => b.status !== 'Deleted').slice(0, 3).map((booking) => {
-              const bookingBikes = bikes.filter(b => booking.bikeIds.includes(b.id));
+              const bookingBikes = bikes.filter(b => safeArray<string>(booking.bikeIds).includes(b.id));
               const primaryBike = bookingBikes[0];
               
               return (

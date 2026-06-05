@@ -2,6 +2,7 @@ import { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { useLocation } from 'wouter';
 import { useStore, Bike, Booking, Customer } from '@/lib/store';
 import { getBlockedDatesFromStorage } from '@/lib/utils';
+import { safeArray } from '@/lib/safe';
 import {
   format,
   parseISO,
@@ -165,7 +166,8 @@ export default function InventoryCalendar({ className }: InventoryCalendarProps)
       const dayEnd = endOfDay(date);
       
       return bookings.filter((b) => {
-        if (b.status === 'Deleted' || b.status === 'Cancelled') return false;
+        if (b.status === 'Deleted' || b.status === 'Cancelled' || b.deleted_at) return false;
+        if (!b.startDate || !b.endDate) return false;
         const bookingStart = parseISO(b.startDate);
         const bookingEnd = parseISO(b.endDate);
         
@@ -211,7 +213,7 @@ export default function InventoryCalendar({ className }: InventoryCalendarProps)
   };
 
   const customer = selectedBooking ? customers.find((c) => c.id === selectedBooking.customerId) : null;
-  const selectedBookingBikes = selectedBooking ? bikes.filter((b) => selectedBooking.bikeIds.includes(b.id)) : [];
+  const selectedBookingBikes = selectedBooking ? bikes.filter((b) => safeArray<string>(selectedBooking.bikeIds).includes(b.id)) : [];
   const availableBikesOnSelectedDate = selectedDate ? getAvailableBikesForDate(selectedDate) : [];
   const bookingsOnSelectedDate = selectedDate ? getBookingsForDate(selectedDate) : [];
   const blockedDatesSet = useMemo(() => new Set(getBlockedDatesFromStorage()), []);
@@ -467,7 +469,7 @@ function BikeRow({ bike, bikes, days, bikeSegmentMap, columnWidth, customers, on
 
           const top = 4 + first.stackIndex * (BAR_HEIGHT + 4);
           const customer = customers.find((c) => c.id === first.booking.customerId);
-          const bookingBikes = (bikes || []).filter((b) => first.booking.bikeIds.includes(b.id));
+          const bookingBikes = (bikes || []).filter((b) => safeArray<string>(first.booking.bikeIds).includes(b.id));
           const statusColor = getStatusColor(first.booking.status);
           const statusBorderColor = getStatusBorderColor(first.booking.status);
 
@@ -516,7 +518,7 @@ interface BookingBarProps {
 
 function BookingBar({ segment, customers, bikes, onClick }: BookingBarProps) {
   const customer = customers.find((c) => c.id === segment.booking.customerId);
-  const bookingBikes = (bikes || []).filter((b) => segment.booking.bikeIds.includes(b.id));
+  const bookingBikes = (bikes || []).filter((b) => safeArray<string>(segment.booking.bikeIds).includes(b.id));
   const statusColor = getStatusColor(segment.booking.status);
   const statusBorderColor = getStatusBorderColor(segment.booking.status);
 
@@ -547,7 +549,7 @@ function BookingBar({ segment, customers, bikes, onClick }: BookingBarProps) {
       onClick={onClick}
       role="button"
       tabIndex={0}
-      aria-label={`Booking for ${customer?.name || 'Unknown'} from ${format(parseISO(segment.booking.startDate), 'MMM d')} to ${format(parseISO(segment.booking.endDate), 'MMM d')}`}
+      aria-label={`Booking for ${customer?.name || 'Unknown'} from ${segment.booking.startDate ? format(parseISO(segment.booking.startDate), 'MMM d') : 'N/A'} to ${segment.booking.endDate ? format(parseISO(segment.booking.endDate), 'MMM d') : 'N/A'}`}
     >
       <div className="px-1 py-0.5 text-[9px] font-medium truncate text-zinc-800 h-full flex items-center gap-2">
         <span className="truncate">{customer?.name}</span>
@@ -662,11 +664,11 @@ function BookingDetailModal({ open, onOpenChange, booking, customer, bikes }: Bo
             <div className="grid grid-cols-2 gap-3 text-sm">
               <div className="p-2 bg-zinc-50 rounded-lg">
                 <p className="text-xs text-muted-foreground">Start</p>
-                <p className="font-medium">{format(parseISO(booking.startDate), 'MMM dd, HH:mm')}</p>
+                <p className="font-medium">{booking.startDate ? format(parseISO(booking.startDate), 'MMM dd, HH:mm') : 'N/A'}</p>
               </div>
               <div className="p-2 bg-zinc-50 rounded-lg">
                 <p className="text-xs text-muted-foreground">End</p>
-                <p className="font-medium">{format(parseISO(booking.endDate), 'MMM dd, HH:mm')}</p>
+                <p className="font-medium">{booking.endDate ? format(parseISO(booking.endDate), 'MMM dd, HH:mm') : 'N/A'}</p>
               </div>
             </div>
 
@@ -830,7 +832,7 @@ function DayDetailModal({
               <div className="space-y-2 max-h-40 overflow-y-auto">
                 {dayBookings.map((booking) => {
                   const bookingCustomer = customers.find((c) => c.id === booking.customerId);
-                  const bookingBikes = bikes.filter((b) => booking.bikeIds.includes(b.id));
+                  const bookingBikes = bikes.filter((b) => safeArray<string>(booking.bikeIds).includes(b.id));
                   return (
                     <div
                       key={booking.id}

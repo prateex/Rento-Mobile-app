@@ -1,0 +1,12 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "apply_patch Customers delete",
+			"type": "shell",
+			"command": "cd \"c:\\App Project\\Rento App Project\\Development\\Rento-App-03\"; python - <<'PY'\nfrom pathlib import Path\np = Path(r\"c:\\App Project\\Rento App Project\\Development\\Rento-App-03\\backend\\client\\src\\pages\\Customers.tsx\")\ntext = p.read_text()\nold = \"\"\"        const result = await deleteCustomerIdPhoto(pathToDelete);\n        if (!result.success) {\n          toast({ title: 'Delete Failed', description: result.error, variant: 'destructive' });\n          return;\n        }\n        \n        // Soft delete: UPDATE deleted_at = now()\n        const { error, count } = await supabase\n          .from('customer_id_photos')\n          .update({ deleted_at: new Date().toISOString() })\n          .eq('customer_id', initialData.id)\n          .eq('side', side)\n          .is('deleted_at', null)\n          .select('id', { count: 'exact' });\n        \n        if (error || !count) {\n          toast({ title: 'Delete Failed', description: 'Failed to remove photo record', variant: 'destructive' });\n          return;\n        }\n\"\"\"\nnew = \"\"\"        const result = await deleteCustomerIdPhoto(pathToDelete);\n        if (!result.success) {\n          toast({ title: 'Delete Failed', description: result.error, variant: 'destructive' });\n          return;\n        }\n        \n        const { error } = await supabase\n          .from('customer_id_photos')\n          .delete()\n          .eq('customer_id', initialData.id)\n          .eq('side', side);\n        \n        if (error) {\n          toast({ title: 'Delete Failed', description: 'Failed to remove photo record', variant: 'destructive' });\n          return;\n        }\n\"\"\"\nif old not in text:\n    raise SystemExit('context not found')\np.write_text(text.replace(old, new))\nPY",
+			"args": [],
+			"isBackground": false
+		}
+	]
+}

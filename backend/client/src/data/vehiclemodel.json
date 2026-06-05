@@ -1,0 +1,119 @@
+[
+  {
+    "vehicle_type": "Bike",
+    "brand": "Hero",
+    "model": "Splendor Plus",
+    "cc": "100cc",
+    "segment": "Commuter",
+    "gear_type": "Manual",
+    "category": "Budget"
+  },
+  {
+    "vehicle_type": "Bike",
+    "brand": "Hero",
+    "model": "HF Deluxe",
+    "cc": "100cc",
+    "segment": "Commuter",
+    "gear_type": "Manual",
+    "category": "Budget"
+  },
+  {
+    "vehicle_type": "Bike",
+    "brand": "Honda",
+    "model": "Shine",
+    "cc": "125cc",
+    "segment": "Commuter",
+    "gear_type": "Manual",
+    "category": "Standard"
+  },
+  {
+    "vehicle_type": "Bike",
+    "brand": "Bajaj",
+    "model": "Pulsar 150",
+    "cc": "150cc",
+    "segment": "Sports",
+    "gear_type": "Manual",
+    "category": "Sports"
+  },
+  {
+    "vehicle_type": "Bike",
+    "brand": "TVS",
+    "model": "Apache RTR 160",
+    "cc": "160cc",
+    "segment": "Sports",
+    "gear_type": "Manual",
+    "category": "Sports"
+  },
+  {
+    "vehicle_type": "Bike",
+    "brand": "Royal Enfield",
+    "model": "Classic 350",
+    "cc": "350cc",
+    "segment": "Premium",
+    "gear_type": "Manual",
+    "category": "Premium"
+  },
+  {
+    "vehicle_type": "Scooter",
+    "brand": "Honda",
+    "model": "Activa 6G",
+    "cc": "110cc",
+    "segment": "Commuter",
+    "gear_type": "Automatic",
+    "category": "Gearless"
+  },
+  {
+    "vehicle_type": "Scooter",
+    "brand": "TVS",
+    "model": "Jupiter",
+    "cc": "110cc",
+    "segment": "Commuter",
+    "gear_type": "Automatic",
+    "category": "Gearless"
+  },
+  {
+    "vehicle_type": "Scooter",
+    "brand": "Suzuki",
+    "model": "Access 125",
+    "cc": "125cc",
+    "segment": "Premium",
+    "gear_type": "Automatic",
+    "category": "Gearless"
+  },
+  {
+    "vehicle_type": "Scooter",
+    "brand": "TVS",
+    "model": "Ntorq 125",
+    "cc": "125cc",
+    "segment": "Sports",
+    "gear_type": "Automatic",
+    "category": "Gearless"
+  },
+  {
+    "vehicle_type": "Scooter",
+    "brand": "Yamaha",
+    "model": "Fascino 125",
+    "cc": "125cc",
+    "segment": "Premium",
+    "gear_type": "Automatic",
+    "category": "Gearless"
+  },
+  {
+    "vehicle_type": "Scooter",
+    "brand": "Ola",
+    "model": "S1 Pro",
+    "cc": "EV",
+    "segment": "Electric",
+    "gear_type": "Automatic",
+    "category": "EV"
+  },
+  {
+    "vehicle_type": "Scooter",
+    "brand": "Ather",
+    "model": "450X",
+    "cc": "EV",
+    "segment": "Electric",
+    "gear_type": "Automatic",
+    "category": "EV"
+  }
+]

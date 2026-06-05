@@ -56,7 +56,7 @@ export function InvoicePreviewModal({
       onSendWhatsApp();
     } else {
       // Fallback: Generate WhatsApp message
-      const bikeNames = bikes.filter(b => booking.bikeIds.includes(b.id)).map(b => b.name).join(', ');
+      const bikeNames = Array.isArray(booking.bikeIds) ? bikes.filter(b => booking.bikeIds.includes(b.id)).map(b => b.name).join(', ') : 'Unknown';
       const message = `Invoice for booking #${booking.bookingNumber}:\nBike: ${bikeNames}\nFrom: ${booking.startDate}\nTo: ${booking.endDate}\nTotal: ₹${booking.totalAmount || booking.rent}`;
       const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(message)}`;
       window.open(whatsappUrl, "_blank");
@@ -76,7 +76,7 @@ export function InvoicePreviewModal({
   };
 
   // Get bike and customer names
-  const bikeNames = bikes.filter(b => booking.bikeIds.includes(b.id)).map(b => b.name).join(', ');
+  const bikeNames = Array.isArray(booking.bikeIds) ? bikes.filter(b => booking.bikeIds.includes(b.id)).map(b => b.name).join(', ') : 'Unknown';
   const customerName = customer?.name || 'Customer';
   const customerPhone = customer?.phone || 'N/A';
 

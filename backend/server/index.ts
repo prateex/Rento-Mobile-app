@@ -1,4 +1,13 @@
-import 'dotenv/config';
+import dotenv from 'dotenv';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const backendRoot = path.resolve(__dirname, '..');
+
+// Load .env then .env.local (local overrides cloud for dev)
+dotenv.config({ path: path.join(backendRoot, '.env') });
+dotenv.config({ path: path.join(backendRoot, '.env.local'), override: true });
 import express, { type Request, Response, NextFunction } from "express";
 import cors from "cors";
 import { registerRoutes } from "./routes";
@@ -17,6 +26,15 @@ function validateEnvironment() {
   }
   
   console.log('✅ Environment variables validated');
+  console.log('📊 DATABASE CONNECTION:');
+  console.log('   - Supabase URL:', process.env.SUPABASE_URL);
+  const projectId =
+    process.env.SUPABASE_URL?.match(/https:\/\/([^.]+)\./)?.[1] ||
+    (process.env.SUPABASE_URL?.includes('127.0.0.1') || process.env.SUPABASE_URL?.includes('localhost')
+      ? 'local'
+      : 'unknown');
+  console.log('   - Project ID:', projectId);
+  console.log('   - Service role key:', process.env.SUPABASE_SERVICE_ROLE_KEY ? '✓ Present' : '✗ Missing');
 }
 
 // Only validate in production or when Supabase is being used
@@ -138,18 +156,19 @@ async function startup() {
 
     // Global error handler - must be after all routes
     app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
-      console.error('Global error handler:', err);
-      
-      const status = err.status || err.statusCode || 500;
-      const message = err.message || "Internal Server Error";
+      console.error('Unhandled error:', err);
 
-      // Send proper error response
-      if (!res.headersSent) {
-        res.status(status).json({ 
-          error: message,
-          ...(process.env.NODE_ENV !== 'production' && { stack: err.stack })
-        });
+      if (res.headersSent) {
+        return;
       }
+
+      const status = err?.status || err?.statusCode || 500;
+      const message = err?.message || 'Unknown error';
+
+      res.status(status).json({
+        error: 'Internal Server Error',
+        message,
+      });
     });
     console.log('✅ Error handler registered');
 

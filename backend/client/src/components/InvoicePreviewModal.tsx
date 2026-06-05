@@ -1,7 +1,8 @@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
-import { Booking, Customer, Bike } from "@/lib/store";
+import { Booking, Customer, Bike, useStore } from "@/lib/store";
+import { safeArray } from "@/lib/safe";
 import { FileDown, MessageCircle, Clock } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
@@ -25,6 +26,7 @@ export function InvoicePreviewModal({
   onSendWhatsApp,
 }: InvoicePreviewModalProps) {
   const { toast } = useToast();
+  const { shopDetails } = useStore();
 
   if (!booking) {
     return null;
@@ -55,9 +57,14 @@ export function InvoicePreviewModal({
     if (onSendWhatsApp) {
       onSendWhatsApp();
     } else {
-      // Fallback: Generate WhatsApp message
-      const bikeNames = bikes.filter(b => booking.bikeIds.includes(b.id)).map(b => b.name).join(', ');
-      const message = `Invoice for booking #${booking.bookingNumber}:\nBike: ${bikeNames}\nFrom: ${booking.startDate}\nTo: ${booking.endDate}\nTotal: ₹${booking.totalAmount || booking.rent}`;
+      // Fallback: Generate WhatsApp message with shop details
+      const bikeNames = bikes.filter(b => safeArray<string>(booking.bikeIds).includes(b.id)).map(b => b.name).join(', ') || 'Unknown';
+      const shopName = shopDetails.name || 'Rental Shop';
+      const shopPhone = shopDetails.phone ? `\nContact: ${shopDetails.phone}` : '';
+      const shopAddress = shopDetails.address ? `\nAddress: ${shopDetails.address}` : '';
+      const gst = shopDetails.gstNumber ? `\nGST: ${shopDetails.gstNumber}` : '';
+      
+      const message = `*${shopName}*${shopPhone}${shopAddress}${gst}\n\n*Invoice for Booking #${booking.bookingNumber}*\n\nVehicle: ${bikeNames}\nCustomer: ${customerName}\nFrom: ${booking.startDate}\nTo: ${booking.endDate}\nRent: ₹${rent}\nTotal: ₹${booking.totalAmount || booking.rent}\n\nThank you for your business!`;
       const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(message)}`;
       window.open(whatsappUrl, "_blank");
     }
@@ -76,16 +83,18 @@ export function InvoicePreviewModal({
   };
 
   // Get bike and customer names
-  const bikeNames = bikes.filter(b => booking.bikeIds.includes(b.id)).map(b => b.name).join(', ');
+  const bikeNames = bikes.filter(b => safeArray<string>(booking.bikeIds).includes(b.id)).map(b => b.name).join(', ') || 'Unknown';
   const customerName = customer?.name || 'Customer';
   const customerPhone = customer?.phone || 'N/A';
 
-  // Calculate invoice details
+  // Calculate invoice details using: Total = Rent + Deposit - Refund
   const rent = booking.rent || 0;
+  const deposit = booking.deposit || 0;
   const advanceAmount = booking.advanceAmount || 0;
   const remainingAmount = booking.remainingAmount || rent - advanceAmount;
-  const tax = Math.round(rent * 0.1); // 10% GST
-  const totalAmount = rent + tax;
+  const depositDeduction = booking.depositDeduction || 0;
+  const depositRefund = Math.max(0, deposit - depositDeduction);
+  const totalAmount = rent + deposit - depositRefund;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -95,12 +104,27 @@ export function InvoicePreviewModal({
         </DialogHeader>
 
         <div className="space-y-4">
+          {/* Shop Header */}
+          <div className="bg-gradient-to-r from-[hsl(49,100%,50%)] to-amber-500 text-black rounded-lg p-4">
+            <h2 className="text-xl font-bold">{shopDetails.name || 'Rental Shop'}</h2>
+            {shopDetails.address && <p className="text-sm mt-1">{shopDetails.address}</p>}
+            <div className="flex gap-4 mt-2 text-sm">
+              {shopDetails.phone && <span>📞 {shopDetails.phone}</span>}
+              {shopDetails.email && <span>✉️ {shopDetails.email}</span>}
+            </div>
+            {shopDetails.gstNumber && (
+              <p className="text-sm mt-1 font-medium">GST: {shopDetails.gstNumber}</p>
+            )}
+          </div>
+          
           {/* Invoice Header */}
           <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
             <div className="flex justify-between items-start mb-2">
               <div>
                 <h3 className="font-bold text-lg">INVOICE</h3>
-                <p className="text-sm text-muted-foreground">Invoice #INV-{booking.id?.slice(0, 8) || "000000"}</p>
+                  <p className="text-sm text-muted-foreground">
+                    {booking.invoiceNumber ? `Invoice #${booking.invoiceNumber}` : 'Invoice (Not Yet Generated)'}
+                  </p>
               </div>
               <div className="text-right text-sm">
                 <p className="font-semibold">{new Date().toLocaleDateString()}</p>
@@ -179,6 +203,19 @@ export function InvoicePreviewModal({
                   <span>Total Amount</span>
                   <span className="text-blue-600">₹{totalAmount.toLocaleString()}</span>
                 </div>
+                  {deposit > 0 && (
+                    <div className="flex justify-between text-sm border-t pt-2 text-purple-700">
+                      <span>Security Deposit (Held Separately)</span>
+                      <span className="font-medium">₹{deposit.toLocaleString()}</span>
+                    </div>
+                  )}
+                  {depositDeduction > 0 && (
+                    <div className="flex justify-between text-sm text-red-600">
+                      <span>Deposit Deduction</span>
+                      <span className="font-medium">-₹{depositDeduction.toLocaleString()}</span>
+                    </div>
+                  )}
+                  {/* Deposit refund is calculated implicitly in total; no separate row to avoid confusion */}
               </div>
             </div>
 
@@ -216,14 +253,16 @@ export function InvoicePreviewModal({
               <MessageCircle size={16} className="mr-2" />
               Send via WhatsApp
             </Button>
-            <Button
-              variant="ghost"
-              className="w-full"
-              onClick={handleGenerateLater}
-            >
-              <Clock size={16} className="mr-2" />
-              Generate Invoice Later
-            </Button>
+              {!booking.invoiceNumber && (
+                <Button
+                  variant="ghost"
+                  className="w-full"
+                  onClick={handleGenerateLater}
+                >
+                  <Clock size={16} className="mr-2" />
+                  Generate Invoice Later
+                </Button>
+              )}
           </div>
         </div>
       </DialogContent>

@@ -23,7 +23,7 @@ async function setupTestData() {
       city: 'Mumbai',
       state: 'Maharashtra'
     })
-    .select()
+    .select('*')
     .single();
   
   if (shop1Error) {
@@ -41,7 +41,7 @@ async function setupTestData() {
       city: 'Delhi',
       state: 'Delhi'
     })
-    .select()
+    .select('*')
     .single();
   
   if (shop2Error) {

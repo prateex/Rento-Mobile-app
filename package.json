@@ -1,5 +1,10 @@
 {
   "dependencies": {
-    "@supabase/supabase-js": "^2.89.0"
+    "@supabase/supabase-js": "^2.91.0",
+    "expo": "^54.0.32"
+  },
+  "devDependencies": {
+    "@types/react": "~19.1.10",
+    "typescript": "~5.9.2"
   }
 }

@@ -4,7 +4,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { useState } from 'react';
 import { MessageCircle, Copy, Check } from 'lucide-react';
 import { formatWhatsAppMessage, getWhatsAppShareUrl } from '@/lib/utils';
-import { Booking, Customer, Bike } from '@/lib/store';
+import { Booking, Customer, Bike, useStore } from '@/lib/store';
 
 interface WhatsAppDialogProps {
   open: boolean;
@@ -29,7 +29,8 @@ export function WhatsAppDialog({
   template,
   onSent
 }: WhatsAppDialogProps) {
-  const [message, setMessage] = useState(formatWhatsAppMessage(template, booking, customer, bikes));
+  const { shopDetails } = useStore();
+  const [message, setMessage] = useState(formatWhatsAppMessage(template, booking, customer, bikes, shopDetails));
   const [copied, setCopied] = useState(false);
 
   const handleCopyMessage = () => {

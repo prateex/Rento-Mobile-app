@@ -46,7 +46,7 @@ async function main() {
   console.log('Step 4: fetch shop (optional)');
   const { data: shop } = await userClient
     .from('rental_shops')
-    .select('id, name')
+    .select('*')
     .eq('owner_id', userId)
     .single();
 

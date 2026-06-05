@@ -34,11 +34,17 @@ export interface AggregatedRevenue {
 }
 
 function getValidBookings(bookings: Booking[]): Booking[] {
-  return bookings.filter(b => b.status !== 'Deleted' && b.status !== 'Cancelled');
+  return bookings.filter(b => 
+    b.status !== 'Deleted' && 
+    b.status !== 'Cancelled' && 
+    !b.deleted_at && 
+    b.startDate
+  );
 }
 
 function getBookingsInRange(bookings: Booking[], start: Date, end: Date): Booking[] {
   return getValidBookings(bookings).filter(b => {
+    if (!b.startDate) return false;
     const bookingStart = parseISO(b.startDate);
     return isWithinInterval(bookingStart, { start: startOfDay(start), end: endOfDay(end) });
   });
@@ -50,6 +56,7 @@ export function aggregateByDay(bookings: Booking[], startDate: Date, endDate: Da
   
   const data: RevenueDataPoint[] = days.map(day => {
     const dayBookings = validBookings.filter(b => {
+      if (!b.startDate) return false;
       const bookingStart = startOfDay(parseISO(b.startDate));
       return bookingStart.getTime() === startOfDay(day).getTime();
     });
@@ -60,7 +67,7 @@ export function aggregateByDay(bookings: Booking[], startDate: Date, endDate: Da
       bookings: dayBookings.length,
       rent: dayBookings.reduce((sum, b) => sum + (b.rent || 0), 0),
       deposit: dayBookings.reduce((sum, b) => sum + (b.deposit || 0), 0),
-      total: dayBookings.reduce((sum, b) => sum + (b.totalAmount || 0), 0)
+      total: dayBookings.reduce((sum, b) => sum + (b.rent || 0), 0) // Revenue excludes deposits
     };
   });
   
@@ -74,6 +81,7 @@ export function aggregateByWeek(bookings: Booking[], startDate: Date, endDate: D
   const data: RevenueDataPoint[] = weeks.map((weekStart, index) => {
     const weekEnd = endOfWeek(weekStart);
     const weekBookings = validBookings.filter(b => {
+      if (!b.startDate) return false;
       const bookingStart = parseISO(b.startDate);
       return isWithinInterval(bookingStart, { start: weekStart, end: weekEnd });
     });
@@ -84,7 +92,7 @@ export function aggregateByWeek(bookings: Booking[], startDate: Date, endDate: D
       bookings: weekBookings.length,
       rent: weekBookings.reduce((sum, b) => sum + (b.rent || 0), 0),
       deposit: weekBookings.reduce((sum, b) => sum + (b.deposit || 0), 0),
-      total: weekBookings.reduce((sum, b) => sum + (b.totalAmount || 0), 0)
+      total: weekBookings.reduce((sum, b) => sum + (b.rent || 0), 0) // Revenue excludes deposits
     };
   });
   
@@ -98,6 +106,7 @@ export function aggregateByMonth(bookings: Booking[], startDate: Date, endDate: 
   const data: RevenueDataPoint[] = months.map(monthStart => {
     const monthEnd = endOfMonth(monthStart);
     const monthBookings = validBookings.filter(b => {
+      if (!b.startDate) return false;
       const bookingStart = parseISO(b.startDate);
       return isWithinInterval(bookingStart, { start: monthStart, end: monthEnd });
     });
@@ -108,7 +117,7 @@ export function aggregateByMonth(bookings: Booking[], startDate: Date, endDate: 
       bookings: monthBookings.length,
       rent: monthBookings.reduce((sum, b) => sum + (b.rent || 0), 0),
       deposit: monthBookings.reduce((sum, b) => sum + (b.deposit || 0), 0),
-      total: monthBookings.reduce((sum, b) => sum + (b.totalAmount || 0), 0)
+      total: monthBookings.reduce((sum, b) => sum + (b.rent || 0), 0) // Revenue excludes deposits
     };
   });
   

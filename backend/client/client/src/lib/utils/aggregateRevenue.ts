@@ -34,11 +34,17 @@ export interface AggregatedRevenue {
 }
 
 function getValidBookings(bookings: Booking[]): Booking[] {
-  return bookings.filter(b => b.status !== 'Deleted' && b.status !== 'Cancelled');
+  return bookings.filter(b => 
+    b.status !== 'Deleted' && 
+    b.status !== 'Cancelled' && 
+    !b.deleted_at && 
+    b.startDate
+  );
 }
 
 function getBookingsInRange(bookings: Booking[], start: Date, end: Date): Booking[] {
   return getValidBookings(bookings).filter(b => {
+    if (!b.startDate) return false;
     const bookingStart = parseISO(b.startDate);
     return isWithinInterval(bookingStart, { start: startOfDay(start), end: endOfDay(end) });
   });
@@ -50,6 +56,7 @@ export function aggregateByDay(bookings: Booking[], startDate: Date, endDate: Da
   
   const data: RevenueDataPoint[] = days.map(day => {
     const dayBookings = validBookings.filter(b => {
+      if (!b.startDate) return false;
       const bookingStart = startOfDay(parseISO(b.startDate));
       return bookingStart.getTime() === startOfDay(day).getTime();
     });
@@ -74,6 +81,7 @@ export function aggregateByWeek(bookings: Booking[], startDate: Date, endDate: D
   const data: RevenueDataPoint[] = weeks.map((weekStart, index) => {
     const weekEnd = endOfWeek(weekStart);
     const weekBookings = validBookings.filter(b => {
+      if (!b.startDate) return false;
       const bookingStart = parseISO(b.startDate);
       return isWithinInterval(bookingStart, { start: weekStart, end: weekEnd });
     });
@@ -98,6 +106,7 @@ export function aggregateByMonth(bookings: Booking[], startDate: Date, endDate: 
   const data: RevenueDataPoint[] = months.map(monthStart => {
     const monthEnd = endOfMonth(monthStart);
     const monthBookings = validBookings.filter(b => {
+      if (!b.startDate) return false;
       const bookingStart = parseISO(b.startDate);
       return isWithinInterval(bookingStart, { start: monthStart, end: monthEnd });
     });

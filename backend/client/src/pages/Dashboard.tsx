@@ -1,8 +1,10 @@
-import { lazy, Suspense, useState } from "react";
+import { lazy, Suspense, useState, useCallback } from "react";
 import MobileLayout from "@/components/layout/MobileLayout";
+import { NotificationBell } from "@/components/NotificationBell";
 import { useStore } from "@/lib/store";
+import { safeArray } from "@/lib/safe";
 import { Card, CardContent } from "@/components/ui/card";
-import { Bike, Calendar, TrendingUp, Plus, ArrowRight, EyeOff, CalendarDays, Car as CarIcon } from "lucide-react";
+import { Bike, Calendar, TrendingUp, Plus, ArrowRight, EyeOff, CalendarDays, Car as CarIcon, RefreshCw } from "lucide-react";
 import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { format } from "date-fns";
@@ -10,6 +12,9 @@ import { cn } from "@/lib/utils";
 import RevenueReport from "@/components/dashboard/RevenueReport";
 import { useRef, useEffect } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
+import { usePullToRefresh } from "@/hooks/usePullToRefresh";
+import { PullToRefreshIndicator } from "@/components/ui/pull-to-refresh-indicator";
+import { useToast } from "@/hooks/use-toast";
 
 const InventoryCalendar = lazy(() => import("@/components/dashboard/InventoryCalendar"));
 
@@ -22,27 +27,45 @@ const getVehicleLabel = (type?: string) => {
 };
 
 export default function Dashboard() {
-  const { user, bikes, bookings, settings } = useStore();
+  const { user, bikes, bookings, settings, refreshAllData } = useStore();
   const [isRevenueReportOpen, setIsRevenueReportOpen] = useState(false);
   const [showCalendar, setShowCalendar] = useState(true);
   const calendarRef = useRef<HTMLDivElement | null>(null);
+  const { toast } = useToast();
+  
+  const handleRefresh = useCallback(async () => {
+    try {
+      await refreshAllData();
+    } catch (error: any) {
+      toast({ title: "Refresh failed", description: error?.message || 'Unable to refresh data', variant: "destructive" });
+      throw error;
+    }
+  }, [refreshAllData, toast]);
+  
+  const { containerRef, pullDistance, isRefreshing, pullProgress } = usePullToRefresh({
+    onRefresh: handleRefresh,
+  });
+  
   const today = new Date();
   const dayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 0, 0, 0, 0);
   const dayEnd = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59, 999);
-  const isOnToday = (startISO: string, endISO: string) => {
+  const isOnToday = (startISO: string | undefined, endISO: string | undefined) => {
+    if (!startISO || !endISO) return false;
     const start = new Date(startISO);
     const end = new Date(endISO);
-    return start <= dayEnd && end > dayStart;
+    return isNaN(start.getTime()) || isNaN(end.getTime()) ? false : (start <= dayEnd && end > dayStart);
   };
   const bookedTodayBikeIds = new Set<string>();
   const activeTodayBikeIds = new Set<string>();
   bookings.forEach(b => {
-    if (b.status === 'Deleted' || b.status === 'Cancelled') return;
+    if (b.status === 'Deleted' || b.status === 'cancelled' || b.status === 'expired' || b.deleted_at) return;
+    if (!b.startDate || !b.endDate) return;
     if (isOnToday(b.startDate, b.endDate)) {
-      if (b.status === 'Active') {
-        b.bikeIds.forEach(id => activeTodayBikeIds.add(id));
+      const bikeIds = safeArray<string>(b.bikeIds);
+      if (b.status === 'active') {
+        bikeIds.forEach(id => activeTodayBikeIds.add(id));
       } else {
-        b.bikeIds.forEach(id => bookedTodayBikeIds.add(id));
+        bikeIds.forEach(id => bookedTodayBikeIds.add(id));
       }
     }
   });
@@ -52,18 +75,34 @@ export default function Dashboard() {
     totalBikes: bikes.length,
     available: Math.max(0, bikes.length - bookedTodayBikeIds.size - activeTodayBikeIds.size - maintenanceBikeIds.size),
     booked: bikes.filter(b => b.status === 'Booked').length,
-    revenue: bookings.filter(b => b.status !== 'Deleted' && b.status !== 'Cancelled').reduce((acc, curr) => acc + (curr.totalAmount || 0), 0)
+    revenue: bookings.filter(b => b.status !== 'Deleted' && b.status !== 'cancelled' && b.status !== 'expired' && !b.deleted_at).reduce((acc, curr) => acc + (curr.totalAmount || 0), 0)
   };
 
   return (
     <MobileLayout>
-      <div className="p-4 space-y-6">
+      <div ref={containerRef} className="p-4 space-y-6 relative min-h-screen overflow-y-auto pb-16">
+        <PullToRefreshIndicator 
+          pullDistance={pullDistance} 
+          isRefreshing={isRefreshing} 
+          pullProgress={pullProgress} 
+        />
+        
         <div className="flex justify-between items-center pt-2">
           <div>
             <h1 className="text-2xl font-bold">Dashboard</h1>
             <p className="text-muted-foreground text-sm">Welcome back, {user?.name}</p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex gap-2 items-center">
+             <NotificationBell />
+             <Button 
+               variant="ghost" 
+               size="icon" 
+               className="h-10 w-10"
+               onClick={handleRefresh}
+               disabled={isRefreshing}
+             >
+               <RefreshCw size={20} className={cn("text-zinc-600", isRefreshing && "animate-spin")} />
+             </Button>
              <div className="h-10 w-10 rounded-full bg-zinc-100 border border-zinc-200 flex items-center justify-center">
                <span className="font-bold text-primary-foreground text-sm">
                  {user?.name?.[0] ?? '?'}
@@ -85,23 +124,26 @@ export default function Dashboard() {
             </CardContent>
           </Card>
           
-          <Card className="bg-white border-zinc-100 shadow-sm cursor-pointer hover:border-primary transition-colors" onClick={() => setIsRevenueReportOpen(true)}>
-            <CardContent className="p-4 flex flex-col justify-between h-32">
-              <div className="p-2 bg-zinc-100 w-fit rounded-lg">
-                <TrendingUp size={20} className="text-green-600" />
-              </div>
-              <div>
-                <p className="text-muted-foreground text-xs font-medium">Total Revenue</p>
-                {settings.showRevenueOnDashboard ? (
-                  <h3 className="text-2xl font-bold mt-1">₹{stats.revenue}</h3>
-                ) : (
-                  <div className="flex items-center gap-1 mt-1 text-muted-foreground">
-                    <EyeOff size={16} /> <span className="text-sm font-medium">Hidden</span>
-                  </div>
-                )}
-              </div>
-            </CardContent>
-          </Card>
+          {/* Revenue card - only visible to owners */}
+          {user?.role === 'owner' && (
+            <Card className="bg-white border-zinc-100 shadow-sm cursor-pointer hover:border-primary transition-colors" onClick={() => setIsRevenueReportOpen(true)}>
+              <CardContent className="p-4 flex flex-col justify-between h-32">
+                <div className="p-2 bg-zinc-100 w-fit rounded-lg">
+                  <TrendingUp size={20} className="text-green-600" />
+                </div>
+                <div>
+                  <p className="text-muted-foreground text-xs font-medium">Total Revenue</p>
+                  {settings.showRevenueOnDashboard ? (
+                    <h3 className="text-2xl font-bold mt-1">₹{stats.revenue}</h3>
+                  ) : (
+                    <div className="flex items-center gap-1 mt-1 text-muted-foreground">
+                      <EyeOff size={16} /> <span className="text-sm font-medium">Hidden</span>
+                    </div>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
           <Card className="bg-white border-zinc-100 shadow-sm cursor-pointer"
             onClick={() => { window.location.href = "/bookings?filter=active"; }}
@@ -112,7 +154,7 @@ export default function Dashboard() {
               </div>
               <div>
                 <p className="text-muted-foreground text-xs font-medium">Active Bookings</p>
-                <h3 className="text-2xl font-bold mt-1">{bookings.filter(b => b.status === 'Active').length}</h3>
+                <h3 className="text-2xl font-bold mt-1">{bookings.filter(b => b.status === 'active').length}</h3>
               </div>
             </CardContent>
           </Card>
@@ -171,7 +213,7 @@ export default function Dashboard() {
           
           <div className="space-y-3">
             {bookings.filter(b => b.status !== 'Deleted').slice(0, 3).map((booking) => {
-              const bookingBikes = bikes.filter(b => booking.bikeIds.includes(b.id));
+              const bookingBikes = bikes.filter(b => safeArray<string>(booking.bikeIds).includes(b.id));
               const primaryBike = bookingBikes[0];
               
               return (
@@ -188,16 +230,20 @@ export default function Dashboard() {
                       <p className="text-xs text-muted-foreground">{primaryBike?.regNo}</p>
                       <div className="mt-1 flex items-center gap-2">
                         <span className={cn("px-2 py-0.5 text-[10px] font-bold rounded-full uppercase", 
-                          booking.status === 'Active' ? 'bg-green-100 text-green-700' : 
-                          booking.status === 'Completed' ? 'bg-zinc-100 text-zinc-700' :
-                          booking.status === 'Booked' ? 'bg-blue-100 text-blue-700' : 
+                          booking.status === 'active' ? 'bg-green-100 text-green-700' : 
+                          booking.status === 'completed' ? 'bg-zinc-100 text-zinc-700' :
+                          booking.status === 'requested' ? 'bg-yellow-100 text-yellow-700' : 
+                          booking.status === 'confirmed' ? 'bg-blue-100 text-blue-700' :
+                          booking.status === 'expired' ? 'bg-orange-100 text-orange-700' :
                           'bg-red-100 text-red-700'
                         )}>
                           {booking.status}
                         </span>
-                        <span className="text-[10px] text-muted-foreground">
-                          {format(new Date(booking.startDate), 'dd MMM')}
-                        </span>
+                        {booking.startDate && (
+                          <span className="text-[10px] text-muted-foreground">
+                            {format(new Date(booking.startDate), 'dd MMM')}
+                          </span>
+                        )}
                       </div>
                     </div>
                     <div className="flex flex-col justify-center items-end">

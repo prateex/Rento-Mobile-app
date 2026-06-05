@@ -37,7 +37,7 @@ async function debugData() {
   console.log('\n🏬 RENTAL SHOPS:');
   const { data: shops } = await admin
     .from('rental_shops')
-    .select('id, name, owner_id');
+    .select('*');
   
   console.log(JSON.stringify(shops, null, 2));
   

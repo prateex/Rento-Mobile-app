@@ -18,6 +18,9 @@ export default function MobileLayout({ children, showNav = true }: MobileLayoutP
   return (
     <div className="min-h-screen bg-zinc-100 flex justify-center font-sans">
       <div className="w-full max-w-md bg-background min-h-screen shadow-2xl relative flex flex-col">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-200 bg-white">
+          <span className="text-sm font-semibold">Rento Owner</span>
+        </div>
         <main className="flex-1 pb-20 overflow-y-auto scrollbar-hide">
           {children}
         </main>

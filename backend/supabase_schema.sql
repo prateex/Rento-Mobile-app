@@ -17,9 +17,66 @@ CREATE TABLE IF NOT EXISTS rental_shops (
   phone TEXT NOT NULL,
   email TEXT,
   address TEXT,
+  state TEXT,
+  city TEXT,
+  pincode TEXT,
   gst_number TEXT,
+  pickup_location_name TEXT NOT NULL DEFAULT 'Panjim KTC Bus Stand',
+  pickup_address TEXT,
+  pickup_lat NUMERIC CHECK (pickup_lat >= -90 AND pickup_lat <= 90),
+  pickup_lng NUMERIC CHECK (pickup_lng >= -180 AND pickup_lng <= 180),
+  pickup_latitude NUMERIC CHECK (pickup_latitude >= -90 AND pickup_latitude <= 90),
+  pickup_longitude NUMERIC CHECK (pickup_longitude >= -180 AND pickup_longitude <= 180),
+  pickup_address_text TEXT,
+  pickup_city TEXT,
+  pickup_pincode TEXT,
+  terms_and_conditions TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Shop Pickup Points
+CREATE TABLE IF NOT EXISTS shop_pickup_points (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  shop_id UUID NOT NULL REFERENCES rental_shops(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  address_text TEXT,
+  city TEXT,
+  pincode TEXT,
+  latitude NUMERIC CHECK (latitude >= -90 AND latitude <= 90),
+  longitude NUMERIC CHECK (longitude >= -180 AND longitude <= 180),
+  is_default BOOLEAN NOT NULL DEFAULT false,
+  is_active BOOLEAN NOT NULL DEFAULT true,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- India Locations (State -> City -> Pincode)
+CREATE TABLE IF NOT EXISTS states (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name TEXT NOT NULL UNIQUE,
+  is_active BOOLEAN NOT NULL DEFAULT true,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS cities (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  state_id UUID NOT NULL REFERENCES states(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  is_active BOOLEAN NOT NULL DEFAULT true,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (state_id, name)
+);
+
+CREATE TABLE IF NOT EXISTS pincodes (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  city_id UUID NOT NULL REFERENCES cities(id) ON DELETE CASCADE,
+  pincode TEXT NOT NULL,
+  is_active BOOLEAN NOT NULL DEFAULT true,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (city_id, pincode)
 );
 
 -- Staff/Users
@@ -29,7 +86,7 @@ CREATE TABLE IF NOT EXISTS users (
   auth_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   name TEXT NOT NULL,
   phone TEXT NOT NULL UNIQUE,
-  role TEXT NOT NULL DEFAULT 'staff' CHECK (role IN ('admin', 'staff')),
+  role TEXT NOT NULL DEFAULT 'staff' CHECK (role IN ('admin', 'staff', 'owner')),
   is_active BOOLEAN NOT NULL DEFAULT true,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -51,6 +108,8 @@ CREATE TABLE IF NOT EXISTS vehicles (
   current_odometer INTEGER DEFAULT 0,
   documents JSONB,
   damages JSONB,
+  is_published BOOLEAN NOT NULL DEFAULT false,
+  is_listed_marketplace BOOLEAN NOT NULL DEFAULT false,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -60,11 +119,12 @@ CREATE TABLE IF NOT EXISTS customers (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   shop_id UUID NOT NULL REFERENCES rental_shops(id) ON DELETE CASCADE,
   name TEXT NOT NULL,
+  full_name TEXT,
   phone TEXT NOT NULL,
   email TEXT,
   address TEXT,
   id_type TEXT NOT NULL CHECK (id_type IN ('Aadhaar', 'Voter ID', 'Passport', 'Driving License')),
-  id_photos JSONB NOT NULL,
+  id_photos JSONB NOT NULL DEFAULT '[]'::jsonb,
   documents JSONB,
   status TEXT NOT NULL DEFAULT 'Verified' CHECK (status IN ('Verified', 'Pending')),
   notes TEXT,
@@ -78,14 +138,15 @@ CREATE TABLE IF NOT EXISTS bookings (
   shop_id UUID NOT NULL REFERENCES rental_shops(id) ON DELETE CASCADE,
   booking_number TEXT NOT NULL,
   customer_id UUID NOT NULL REFERENCES customers(id) ON DELETE RESTRICT,
+  pickup_point_id UUID REFERENCES shop_pickup_points(id) ON DELETE SET NULL,
   vehicle_ids JSONB NOT NULL,
   start_date TIMESTAMPTZ NOT NULL,
   end_date TIMESTAMPTZ NOT NULL,
-  status TEXT NOT NULL DEFAULT 'Confirmed' CHECK (status IN ('Confirmed', 'Taken', 'Returned', 'Cancelled')),
+  status TEXT NOT NULL DEFAULT 'requested' CHECK (status IN ('requested', 'confirmed', 'active', 'completed', 'cancelled', 'expired')),
   total_amount NUMERIC(10, 2) NOT NULL,
   advance_amount NUMERIC(10, 2) DEFAULT 0,
   balance_amount NUMERIC(10, 2) NOT NULL,
-  payment_status TEXT NOT NULL DEFAULT 'Unpaid' CHECK (payment_status IN ('Paid', 'Partial', 'Unpaid')),
+  payment_status TEXT NOT NULL DEFAULT 'unpaid' CHECK (payment_status IN ('paid', 'partial', 'unpaid')),
   invoice_number TEXT,
   opening_odometer INTEGER,
   closing_odometer INTEGER,
@@ -148,6 +209,10 @@ CREATE TABLE IF NOT EXISTS damages (
 -- ============================================
 
 CREATE INDEX IF NOT EXISTS idx_rental_shops_owner_id ON rental_shops(owner_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_rental_shops_id_owner ON rental_shops(id, owner_id);
+CREATE INDEX IF NOT EXISTS idx_shop_pickup_points_shop_id ON shop_pickup_points(shop_id);
+CREATE INDEX IF NOT EXISTS idx_shop_pickup_points_active ON shop_pickup_points(is_active);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_shop_pickup_points_default ON shop_pickup_points(shop_id) WHERE is_default = true;
 CREATE INDEX IF NOT EXISTS idx_users_auth_id ON users(auth_id);
 CREATE INDEX IF NOT EXISTS idx_users_shop_id ON users(shop_id);
 CREATE INDEX IF NOT EXISTS idx_vehicles_shop_id ON vehicles(shop_id);
@@ -156,6 +221,7 @@ CREATE INDEX IF NOT EXISTS idx_customers_shop_id ON customers(shop_id);
 CREATE INDEX IF NOT EXISTS idx_customers_phone ON customers(phone);
 CREATE INDEX IF NOT EXISTS idx_bookings_shop_id ON bookings(shop_id);
 CREATE INDEX IF NOT EXISTS idx_bookings_customer_id ON bookings(customer_id);
+CREATE INDEX IF NOT EXISTS idx_bookings_pickup_point_id ON bookings(pickup_point_id);
 CREATE INDEX IF NOT EXISTS idx_bookings_status ON bookings(status);
 CREATE INDEX IF NOT EXISTS idx_bookings_start_date ON bookings(start_date);
 CREATE INDEX IF NOT EXISTS idx_bookings_end_date ON bookings(end_date);
@@ -177,7 +243,7 @@ BEGIN
   NEW.updated_at = NOW();
   RETURN NEW;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SET search_path TO pg_catalog, public;
 
 -- Apply trigger to tables with updated_at
 CREATE TRIGGER update_rental_shops_updated_at
@@ -325,7 +391,7 @@ BEGIN
   END IF;
   RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path TO pg_catalog, public;
 
 DROP TRIGGER IF EXISTS trg_set_user_id_vehicles ON vehicles;
 DROP TRIGGER IF EXISTS trg_set_user_id_customers ON customers;

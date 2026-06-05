@@ -9,31 +9,29 @@ export function cn(...inputs: ClassValue[]) {
 // Status color mapping
 export function getStatusColor(status: BookingStatus): string {
   const colorMap: Record<BookingStatus, string> = {
-    'Booked': 'bg-yellow-100 text-yellow-700',             // Pastel Yellow
-    'Advance Paid': 'bg-orange-100 text-orange-700',       // Pastel Orange
-    'Confirmed': 'bg-blue-100 text-blue-700',              // Pastel Blue
-    'Active': 'bg-green-100 text-green-700',               // Pastel Green
-    'Completed': 'bg-gray-100 text-gray-700',              // Soft Gray
-    'Cancelled': 'bg-red-100 text-red-600',                // Pastel Red
-    'Deleted': 'bg-gray-100 text-gray-500'                 // Soft Gray (hidden)
+    requested: 'bg-yellow-100 text-yellow-700',
+    confirmed: 'bg-blue-100 text-blue-700',
+    active: 'bg-green-100 text-green-700',
+    completed: 'bg-gray-100 text-gray-700',
+    cancelled: 'bg-red-100 text-red-600',
+    expired: 'bg-orange-100 text-orange-700'
   };
   return colorMap[status] || 'bg-gray-100 text-gray-800';
 }
 
 export function getStatusLabel(status: BookingStatus): string {
-  return status === 'Advance Paid' ? 'Advance Paid' : status;
+  return status.charAt(0).toUpperCase() + status.slice(1);
 }
 
 // Status border color mapping for booking card left border
 export function getStatusBorderColor(status: BookingStatus): string {
   const borderColorMap: Record<BookingStatus, string> = {
-    'Booked': 'border-yellow-400',
-    'Advance Paid': 'border-orange-400',
-    'Confirmed': 'border-blue-400',
-    'Active': 'border-green-400',
-    'Completed': 'border-gray-300',
-    'Cancelled': 'border-red-300',
-    'Deleted': 'border-gray-200'
+    requested: 'border-yellow-400',
+    confirmed: 'border-blue-400',
+    active: 'border-green-400',
+    completed: 'border-gray-300',
+    cancelled: 'border-red-300',
+    expired: 'border-orange-400'
   };
   return borderColorMap[status] || 'border-gray-300';
 }
@@ -59,7 +57,8 @@ export function formatWhatsAppMessage(
   template: string,
   booking: Booking,
   customer: Customer,
-  bikes: Bike[]
+  bikes: Bike[],
+  shopDetails?: { name?: string; address?: string; phone?: string; email?: string; gstNumber?: string }
 ): string {
   const bookingBikes = bikes.filter(b => booking.bikeIds.includes(b.id));
   const bikeNames = bookingBikes.map(b => `${b.name} (${b.regNo})`).join(', ');
@@ -82,7 +81,12 @@ export function formatWhatsAppMessage(
     .replace(/{invoiceNumber}/g, booking.invoiceNumber || 'Pending')
     .replace(/{depositDeduction}/g, (booking.depositDeduction || 0).toString())
     .replace(/{refundAmount}/g, refundAmount.toString())
-    .replace(/{deposit}/g, (booking.deposit || 0).toString());
+    .replace(/{deposit}/g, (booking.deposit || 0).toString())
+    .replace(/{shopName}/g, shopDetails?.name || 'Rental Shop')
+    .replace(/{shopAddress}/g, shopDetails?.address || '')
+    .replace(/{shopPhone}/g, shopDetails?.phone || '')
+    .replace(/{shopEmail}/g, shopDetails?.email || '')
+    .replace(/{shopGST}/g, shopDetails?.gstNumber || '');
   
   return message;
 }

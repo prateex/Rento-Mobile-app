@@ -76,7 +76,7 @@ export function useCalendarSegments({
     });
 
     const activeBookings = bookings.filter(
-      (b) => b.status !== 'Deleted' && b.status !== 'Cancelled'
+      (b) => b.status !== 'Deleted' && b.status !== 'Cancelled' && !b.deleted_at && b.startDate && b.endDate
     );
 
     activeBookings.forEach((booking) => {

@@ -1,0 +1,35 @@
+# Supabase Local Development Configuration
+# For Windows local development with Supabase CLI v2.67.1
+
+[db]
+port = 54322
+major_version = 17
+
+[api]
+port = 54321
+schemas = ["public", "graphql_public"]
+extra_search_path = ["public", "extensions"]
+max_rows = 1000
+
+[realtime]
+enabled = true
+
+[studio]
+enabled = true
+port = 54323
+
+[inbucket]
+enabled = true
+port = 54324
+smtp_port = 54325
+pop3_port = 54326
+
+[auth]
+enabled = true
+
+[auth.email]
+enable_confirmations = false
+enable_signup = true
+
+[functions."hello-world"]
+verify_jwt = false

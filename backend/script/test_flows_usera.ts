@@ -25,14 +25,14 @@ async function main() {
   {
     const { data: ownedShop, error: rlsErr } = await userClient
       .from('rental_shops')
-      .select('id')
+      .select('*')
       .eq('owner_id', uid)
       .maybeSingle();
     if (ownedShop?.id) shopId = ownedShop.id;
     if (!shopId) {
       const { data: anyShop, error: svcErr } = await supabase
         .from('rental_shops')
-        .select('id')
+        .select('*')
         .eq('owner_id', uid)
         .maybeSingle();
       if (anyShop?.id) shopId = anyShop.id;

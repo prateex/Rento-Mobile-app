@@ -43,9 +43,16 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
     const { data: { user }, error } = await admin.auth.getUser(token);
 
     if (error || !user) {
-      return res.status(401).json({ 
-        error: 'Unauthorized', 
-        message: 'Invalid or expired token' 
+      const hint =
+        process.env.SUPABASE_URL?.includes('127.0.0.1') ||
+        process.env.SUPABASE_URL?.includes('localhost')
+          ? 'Restart the backend after changing .env, and ensure only one process uses port 3000.'
+          : 'Backend SUPABASE_URL may not match the frontend project (local vs cloud).';
+      console.error('[AUTH] getUser failed:', error?.message, '| SUPABASE_URL:', process.env.SUPABASE_URL);
+      return res.status(401).json({
+        error: 'Unauthorized',
+        message: 'Invalid or expired token',
+        hint,
       });
     }
 
@@ -55,14 +62,15 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
     // Use an RLS-aware client with the user's access token
     const userClient = getSupabaseUserClient(token);
 
-    // Fetch user profile from database using RLS-aware context
+    // Fetch user profile from users table (NOT profiles table)
     const { data: profile, error: profileError } = await userClient
-      .from('profiles')
-      .select('id, full_name, role, allowed, last_device_id')
-      .eq('id', user.id)
+      .from('users')
+      .select('id, name, role, is_active, shop_id')
+      .eq('auth_id', user.id)
       .single();
 
     if (profileError || !profile) {
+      console.error('[AUTH MIDDLEWARE] Profile fetch error:', profileError);
       return res.status(403).json({ 
         error: 'Access Denied', 
         message: 'User profile not found. Contact admin.' 
@@ -70,13 +78,13 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
     }
 
     // TEMP DEBUG LOGS
-    console.log('PROFILE:', profile);
+    console.log('USER PROFILE:', profile);
 
-    // CRITICAL: Check if user is approved for access
-    if (!profile.allowed) {
+    // CRITICAL: Check if user is active
+    if (!profile.is_active) {
       return res.status(403).json({ 
         error: 'Access Denied', 
-        message: 'Access not approved. Contact admin.' 
+        message: 'User account is disabled. Contact admin.' 
       });
     }
 
@@ -88,18 +96,16 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
         message: 'Missing device identifier'
       });
     }
-    if (profile.last_device_id && profile.last_device_id !== deviceIdHeader) {
-      return res.status(401).json({
-        error: 'Unauthorized',
-        message: 'Session invalid on this device'
-      });
-    }
+    
+    // Note: Device validation would require storing last_device_id in users table
+    // For now, just accept the device_id header
 
     // Attach user info to request (NEVER trust user_id from request body)
     req.user = {
       id: user.id,
       email: user.email,
-      role: profile.role
+      role: profile.role,
+      shop_id: profile.shop_id
     };
 
     next();

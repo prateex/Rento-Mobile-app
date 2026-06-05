@@ -1,0 +1,188 @@
+// ============================================================================
+// DEV ADMIN PAGE - QUICK REFERENCE
+// ============================================================================
+//
+// Access: http://localhost:5173/dev/admin
+// Requires: DEV mode + VITE_ENABLE_DEV_ADMIN=true
+// Security: Service role key (LOCAL ONLY)
+// 
+// ============================================================================
+// WORKFLOW
+// ============================================================================
+//
+// Step 1: CREATE AUTH USER
+//   Input: email, password
+//   Output: auth.user.id (copy this)
+//   Uses: Supabase Admin API (/auth/v1/admin/users)
+//
+// Step 2: CREATE SHOP
+//   Input: name, address, city, state, phone, email, gst
+//   Output: shop.id (copy this)
+//   SQL: INSERT INTO rental_shops
+//
+// Step 3: ASSIGN OWNER
+//   Input: auth.user.id, shop.id, name, phone, email
+//   Role: Fixed to 'owner' (cannot change)
+//   SQL: INSERT INTO users with role='owner'
+//
+// Step 4: (OPTIONAL) ADD STAFF
+//   Input: auth.user.id, shop.id, name, phone, email, role
+//   Role: Can be 'staff' or 'admin'
+//   SQL: INSERT INTO users with explicit role
+//
+// Step 5: VALIDATE
+//   Queries: users, shops, auth context
+//   Verifies: role is explicit, shop_id present, RLS not blocking
+//
+// ============================================================================
+// SCHEMA NOTES (DO NOT INVENT)
+// ============================================================================
+//
+// users table:
+//   ✓ id (UUID, PK)
+//   ✓ auth_id (UUID, UNIQUE, NOT NULL) — links to auth.users
+//   ✓ shop_id (UUID, NOT NULL, FK) — links to rental_shops
+//   ✓ name (TEXT, NOT NULL)
+//   ✓ phone (TEXT)
+//   ✓ email (TEXT)
+//   ✓ role (user_role enum, NOT NULL) — EXPLICIT, NO DEFAULT
+//   ✓ is_active (BOOLEAN, DEFAULT true)
+//
+// rental_shops table:
+//   ✓ id (UUID, PK)
+//   ✓ owner_id (UUID, NOT NULL, FK) — links to auth.users
+//   ✓ name (TEXT, NOT NULL)
+//   ✓ address (TEXT)
+//   ✓ city (TEXT)
+//   ✓ state (TEXT)
+//   ✓ pincode (TEXT)
+//   ✓ phone (TEXT)
+//   ✓ email (TEXT)
+//   ✓ gst_number (TEXT)
+//
+// user_role enum values:
+//   - 'owner'
+//   - 'staff'
+//   - 'admin' (for this page, but typically 'owner' for setup)
+//
+// ============================================================================
+// RLS RULES (WHY THIS PAGE MATTERS)
+// ============================================================================
+//
+// OLD (BROKEN):
+//   CREATE POLICY shop_access ON users
+//   USING (shop_id IN (SELECT shop_id FROM users ...))
+//   → Recursion, 500 error, login loop
+//
+// NEW (FIXED):
+//   CREATE POLICY view_own_record ON users FOR SELECT
+//   USING (auth_id = auth.uid())
+//   → Direct check, no recursion, login works
+//
+// This page bypasses RLS during setup (service role), then the app 
+// respects RLS during normal operation (anon key).
+//
+// ============================================================================
+// ERROR MESSAGES & FIXES
+// ============================================================================
+//
+// "VITE_SUPABASE_SERVICE_ROLE_KEY not set"
+//   → Add to .env.local, restart dev server
+//
+// "Auth API error: ..."
+//   → Check VITE_SUPABASE_URL and service role key
+//
+// "User already exists"
+//   → Use different email, or manually delete from auth
+//
+// "Shop name required"
+//   → Fill in all required fields
+//
+// "Auth user ID required"
+//   → Complete Step 1 first
+//
+// "Duplicate user record"
+//   → auth_id already has a public.users row
+//   → Choose different auth user
+//
+// ============================================================================
+// VALIDATION QUERY OUTPUTS
+// ============================================================================
+//
+// After running validation, you should see:
+//
+// Query: users
+//   Rows with:
+//   - auth_id: matches Step 1 user
+//   - shop_id: matches Step 2 shop
+//   - role: 'owner' (from Step 3)
+//   - name: filled in
+//   - created_at: fresh timestamp
+//
+// Query: shops
+//   Rows with:
+//   - owner_id: matches Step 1 user
+//   - name: filled in
+//   - created_at: fresh timestamp
+//
+// Query: auth_context
+//   - current_auth_uid: should be NULL (page accessed as anon)
+//
+// If any query returns error or 0 rows:
+//   - Check browser console for SQL error
+//   - Review migration 20260117010000 in schema
+//   - Verify RLS policies with Supabase Studio
+//
+// ============================================================================
+// NEXT STEPS AFTER SETUP
+// ============================================================================
+//
+// 1. Go to http://localhost:5173/login
+// 2. Enter email and password from Step 1
+// 3. Should log in successfully
+// 4. Check user profile → role should be 'owner'
+// 5. Create a test customer or vehicle
+// 6. Verify shop_id is set (app uses get_my_shop_id())
+// 7. Try logging in as different user → should see different data (RLS)
+//
+// ============================================================================
+// TROUBLESHOOTING
+// ============================================================================
+//
+// Login fails with "User profile not found":
+//   - Step 1-3 failed silently
+//   - Check validation panel → users table should have row
+//   - If no row: redo Steps 1-3
+//
+// Login succeeds but wrong role shown:
+//   - Role in public.users is wrong
+//   - Check validation panel → role column
+//   - Should be 'owner' (if assigned as owner)
+//   - If 'staff', redo Step 3
+//
+// "Cannot access this resource":
+//   - RLS is blocking (correct behavior)
+//   - Verify shop_id in validation panel
+//   - Confirm current user's shop_id matches data shop_id
+//
+// Cannot access /dev/admin page:
+//   - Not in DEV mode (check URL, port should be 5173)
+//   - VITE_ENABLE_DEV_ADMIN not set or false in .env.local
+//   - Fix: restart dev server with correct env vars
+//
+// ============================================================================
+// KEY POINTS TO REMEMBER
+// ============================================================================
+//
+// ✓ This page uses SERVICE ROLE (full DB access)
+// ✓ Only available in LOCAL development (import.meta.env.DEV)
+// ✓ NEVER deploy this code to production
+// ✓ NEVER commit service role key to git
+// ✓ role is ALWAYS explicit (user_role enum, no defaults)
+// ✓ shop_id is ALWAYS required (NOT NULL FK)
+// ✓ RLS uses auth_id (no recursion)
+// ✓ Error messages show actual SQL errors (no hiding)
+// ✓ Validation queries prove setup is correct
+// ✓ Login should work immediately after Step 3
+//
+// ============================================================================

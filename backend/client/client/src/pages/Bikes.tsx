@@ -51,13 +51,14 @@ export default function Bikes() {
   const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'tomorrow' | 'custom'>('all');
   const [customDate, setCustomDate] = useState<Date | undefined>(undefined);
   const [isDatePickerOpen, setIsDatePickerOpen] = useState(false);
+  const [lightboxPhoto, setLightboxPhoto] = useState<string | null>(null);
   
   const { toast } = useToast();
   const [location] = useLocation();
 
   // Handle URL query params for actions
   useEffect(() => {
-    if (location.includes("action=new")) {
+    if ((location || '').includes("action=new")) {
       setIsAddOpen(true);
     }
   }, [location]);
@@ -77,8 +78,8 @@ export default function Bikes() {
       const dayEnd = endOfDay(date);
       
       const conflictingBookings = bookings.filter(booking => {
-        if (booking.status === 'Deleted' || booking.status === 'Cancelled' || booking.status === 'Completed') return false;
-        if (!booking.bikeIds.includes(bikeId)) return false;
+        if (booking.status === 'Deleted' || booking.status === 'Cancelled' || booking.status === 'Completed' || booking.deleted_at) return false;
+        if (!booking.startDate || !booking.endDate || !Array.isArray(booking.bikeIds) || !booking.bikeIds.includes(bikeId)) return false;
         
         const bookingStart = parseISO(booking.startDate);
         const bookingEnd = parseISO(booking.endDate);
@@ -96,12 +97,13 @@ export default function Bikes() {
       if (bike.status === 'Maintenance') return 'Maintenance';
       const dayStart = date ? startOfDay(date) : null;
       const dayEnd = date ? endOfDay(date) : null;
-      const relevantBookings = bookings.filter((b: Booking) => b.bikeIds.includes(bike.id) && b.status !== 'Deleted');
+      const relevantBookings = bookings.filter((b: Booking) => !b.deleted_at && b.startDate && b.endDate && Array.isArray(b.bikeIds) && b.bikeIds.includes(bike.id) && b.status !== 'Deleted');
       if (!date) {
         // If no date filter, prefer showing active status if any ongoing booking overlaps today
         const today = startOfDay(new Date());
         const todayEnd = endOfDay(new Date());
         const todayBooking = relevantBookings.find(b => {
+          if (!b.startDate || !b.endDate) return false;
           const s = parseISO(b.startDate);
           const e = parseISO(b.endDate);
           return s < todayEnd && e > today;
@@ -109,9 +111,10 @@ export default function Bikes() {
         return todayBooking?.status || bike.status;
       }
       const match = relevantBookings.find(b => {
+        if (!b.startDate || !b.endDate || !dayStart || !dayEnd) return false;
         const s = parseISO(b.startDate);
         const e = parseISO(b.endDate);
-        return dayStart && dayEnd ? (s < dayEnd && e > dayStart) : false;
+        return s < dayEnd && e > dayStart;
       });
       return match?.status || (isBikeAvailableOnDate(bike.id, date) ? 'Available' : 'Booked');
     };
@@ -563,10 +566,18 @@ export default function Bikes() {
                            <div className="space-y-2">
                              {viewingBike.damages.map((damage) => (
                                <div key={damage.id} className="flex gap-3 bg-red-50 p-2 rounded-lg border border-red-100">
-                                  <img src={damage.photoUrls[0]} className="h-12 w-12 rounded-md object-cover bg-white" />
-                                  <div>
-                                    <div className="flex items-center gap-2">
-                                       <Badge variant="destructive" className="text-[10px] h-5 px-1">{damage.severity}</Badge>
+                                  <button 
+                                    onClick={() => setLightboxPhoto(damage.photoUrls[0])}
+                                    className="h-12 w-12 rounded-md object-cover bg-white border border-red-200 hover:border-red-400 transition-colors flex-shrink-0 overflow-hidden hover:shadow-md cursor-pointer"
+                                  >
+                                    <img src={damage.photoUrls[0]} className="h-full w-full object-cover" alt="Damage" />
+                                  </button>
+                                  <div className="flex-1 min-w-0">
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                       <span className="text-xs font-semibold text-zinc-800">{damage.type}</span>
+                                       <Badge variant={damage.severity === 'major' ? 'destructive' : 'secondary'} className="text-[10px] h-5 px-1">
+                                         {damage.severity}
+                                       </Badge>
                                        <span className="text-xs text-muted-foreground">{new Date(damage.date).toLocaleDateString()}</span>
                                     </div>
                                     <p className="text-xs mt-1 text-zinc-800">{damage.notes}</p>
@@ -778,6 +789,28 @@ export default function Bikes() {
             </Card>
           ))}
         </div>
+
+        {/* Lightbox for Damage Photos */}
+        {lightboxPhoto && (
+          <div 
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm"
+            onClick={() => setLightboxPhoto(null)}
+          >
+            <div className="relative w-11/12 h-5/6 max-w-2xl flex flex-col items-center justify-center" onClick={(e) => e.stopPropagation()}>
+              <button
+                onClick={() => setLightboxPhoto(null)}
+                className="absolute top-4 right-4 z-10 text-white hover:bg-white/20 rounded-full p-2 transition-colors"
+              >
+                <X size={24} />
+              </button>
+              <img 
+                src={lightboxPhoto} 
+                alt="Damage" 
+                className="w-full h-full object-contain rounded-lg"
+              />
+            </div>
+          </div>
+        )}
       </div>
     </MobileLayout>
   );

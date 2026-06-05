@@ -2,6 +2,7 @@ import { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { useLocation } from 'wouter';
 import { useStore, Bike, Booking, Customer } from '@/lib/store';
 import { getBlockedDatesFromStorage } from '@/lib/utils';
+import { safeArray } from '@/lib/safe';
 import {
   format,
   parseISO,
@@ -26,7 +27,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import { Phone, MessageCircle, User, ChevronLeft, ChevronRight, Calendar, ArrowLeftRight } from 'lucide-react';
+import { Phone, MessageCircle, User, ChevronLeft, ChevronRight, Calendar, ArrowLeftRight, Eye } from 'lucide-react';
 import { useCalendarSegments, getSegmentsForBikeDay, CalendarSegment } from '@/hooks/useCalendarSegments';
 
 interface InventoryCalendarProps {
@@ -165,7 +166,8 @@ export default function InventoryCalendar({ className }: InventoryCalendarProps)
       const dayEnd = endOfDay(date);
       
       return bookings.filter((b) => {
-        if (b.status === 'Deleted' || b.status === 'Cancelled') return false;
+        if (b.status === 'Deleted' || b.status === 'cancelled' || b.status === 'expired' || b.deleted_at) return false;
+        if (!b.startDate || !b.endDate) return false;
         const bookingStart = parseISO(b.startDate);
         const bookingEnd = parseISO(b.endDate);
         
@@ -211,7 +213,7 @@ export default function InventoryCalendar({ className }: InventoryCalendarProps)
   };
 
   const customer = selectedBooking ? customers.find((c) => c.id === selectedBooking.customerId) : null;
-  const selectedBookingBikes = selectedBooking ? bikes.filter((b) => selectedBooking.bikeIds.includes(b.id)) : [];
+  const selectedBookingBikes = selectedBooking ? bikes.filter((b) => safeArray<string>(selectedBooking.bikeIds).includes(b.id)) : [];
   const availableBikesOnSelectedDate = selectedDate ? getAvailableBikesForDate(selectedDate) : [];
   const bookingsOnSelectedDate = selectedDate ? getBookingsForDate(selectedDate) : [];
   const blockedDatesSet = useMemo(() => new Set(getBlockedDatesFromStorage()), []);
@@ -467,7 +469,7 @@ function BikeRow({ bike, bikes, days, bikeSegmentMap, columnWidth, customers, on
 
           const top = 4 + first.stackIndex * (BAR_HEIGHT + 4);
           const customer = customers.find((c) => c.id === first.booking.customerId);
-          const bookingBikes = (bikes || []).filter((b) => first.booking.bikeIds.includes(b.id));
+          const bookingBikes = (bikes || []).filter((b) => safeArray<string>(first.booking.bikeIds).includes(b.id));
           const statusColor = getStatusColor(first.booking.status);
           const statusBorderColor = getStatusBorderColor(first.booking.status);
 
@@ -516,7 +518,7 @@ interface BookingBarProps {
 
 function BookingBar({ segment, customers, bikes, onClick }: BookingBarProps) {
   const customer = customers.find((c) => c.id === segment.booking.customerId);
-  const bookingBikes = (bikes || []).filter((b) => segment.booking.bikeIds.includes(b.id));
+  const bookingBikes = (bikes || []).filter((b) => safeArray<string>(segment.booking.bikeIds).includes(b.id));
   const statusColor = getStatusColor(segment.booking.status);
   const statusBorderColor = getStatusBorderColor(segment.booking.status);
 
@@ -547,7 +549,7 @@ function BookingBar({ segment, customers, bikes, onClick }: BookingBarProps) {
       onClick={onClick}
       role="button"
       tabIndex={0}
-      aria-label={`Booking for ${customer?.name || 'Unknown'} from ${format(parseISO(segment.booking.startDate), 'MMM d')} to ${format(parseISO(segment.booking.endDate), 'MMM d')}`}
+      aria-label={`Booking for ${customer?.name || 'Unknown'} from ${segment.booking.startDate ? format(parseISO(segment.booking.startDate), 'MMM d') : 'N/A'} to ${segment.booking.endDate ? format(parseISO(segment.booking.endDate), 'MMM d') : 'N/A'}`}
     >
       <div className="px-1 py-0.5 text-[9px] font-medium truncate text-zinc-800 h-full flex items-center gap-2">
         <span className="truncate">{customer?.name}</span>
@@ -623,7 +625,7 @@ function BookingDetailModal({ open, onOpenChange, booking, customer, bikes }: Bo
   if (!booking) return null;
   
   const currentBooking = bookings.find(b => b.id === booking.id) || booking;
-  const paymentStatus = currentBooking.paymentStatus || 'Unpaid';
+  const paymentStatus = currentBooking.paymentStatus || 'unpaid';
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -662,11 +664,11 @@ function BookingDetailModal({ open, onOpenChange, booking, customer, bikes }: Bo
             <div className="grid grid-cols-2 gap-3 text-sm">
               <div className="p-2 bg-zinc-50 rounded-lg">
                 <p className="text-xs text-muted-foreground">Start</p>
-                <p className="font-medium">{format(parseISO(booking.startDate), 'MMM dd, HH:mm')}</p>
+                <p className="font-medium">{booking.startDate ? format(parseISO(booking.startDate), 'MMM dd, HH:mm') : 'N/A'}</p>
               </div>
               <div className="p-2 bg-zinc-50 rounded-lg">
                 <p className="text-xs text-muted-foreground">End</p>
-                <p className="font-medium">{format(parseISO(booking.endDate), 'MMM dd, HH:mm')}</p>
+                <p className="font-medium">{booking.endDate ? format(parseISO(booking.endDate), 'MMM dd, HH:mm') : 'N/A'}</p>
               </div>
             </div>
 
@@ -697,41 +699,32 @@ function BookingDetailModal({ open, onOpenChange, booking, customer, bikes }: Bo
             </div>
 
             <div className="space-y-2">
-              <p className="text-xs font-medium text-muted-foreground">Payment Status</p>
-              <div className="flex gap-1">
-                {(['Unpaid', 'Partial', 'Paid'] as const).map((status) => (
-                  <Button
-                    key={status}
-                    variant={paymentStatus === status ? 'default' : 'outline'}
-                    size="sm"
-                    className={cn(
-                      'flex-1 text-xs',
-                      paymentStatus === status && status === 'Paid' && 'bg-green-600 hover:bg-green-700',
-                      paymentStatus === status && status === 'Partial' && 'bg-amber-500 hover:bg-amber-600',
-                      paymentStatus === status && status === 'Unpaid' && 'bg-red-500 hover:bg-red-600'
-                    )}
-                    onClick={() => updatePaymentStatus(currentBooking.id, status)}
-                  >
-                    {status}
-                  </Button>
-                ))}
-              </div>
+              <p className="text-xs font-medium text-muted-foreground">Booking Status</p>
+              <Badge
+                className={cn(
+                  'w-full justify-center py-1',
+                  currentBooking.status === 'active'
+                    ? 'bg-green-100 text-green-700'
+                    : currentBooking.status === 'requested'
+                    ? 'bg-yellow-100 text-yellow-700'
+                    : currentBooking.status === 'confirmed'
+                    ? 'bg-blue-100 text-blue-700'
+                    : currentBooking.status === 'completed'
+                    ? 'bg-zinc-100 text-zinc-700'
+                    : currentBooking.status === 'expired'
+                    ? 'bg-orange-100 text-orange-700'
+                    : 'bg-red-100 text-red-700'
+                )}
+              >
+                {currentBooking.status}
+              </Badge>
             </div>
 
-            <Badge
-              className={cn(
-                'w-full justify-center py-1',
-                currentBooking.status === 'Active'
-                  ? 'bg-green-100 text-green-700'
-                  : currentBooking.status === 'Booked'
-                  ? 'bg-blue-100 text-blue-700'
-                  : currentBooking.status === 'Completed'
-                  ? 'bg-zinc-100 text-zinc-700'
-                  : 'bg-red-100 text-red-700'
-              )}
-            >
-              {currentBooking.status}
-            </Badge>
+            <Button variant="default" size="sm" className="w-full" asChild>
+              <a href={`/bookings?action=view&bookingNumber=${currentBooking.bookingNumber}`}>
+                <Eye className="h-4 w-4 mr-2" /> View Booking
+              </a>
+            </Button>
           </div>
         )}
       </DialogContent>
@@ -830,7 +823,7 @@ function DayDetailModal({
               <div className="space-y-2 max-h-40 overflow-y-auto">
                 {dayBookings.map((booking) => {
                   const bookingCustomer = customers.find((c) => c.id === booking.customerId);
-                  const bookingBikes = bikes.filter((b) => booking.bikeIds.includes(b.id));
+                  const bookingBikes = bikes.filter((b) => safeArray<string>(booking.bikeIds).includes(b.id));
                   return (
                     <div
                       key={booking.id}
@@ -848,10 +841,14 @@ function DayDetailModal({
                           variant="outline"
                           className={cn(
                             'text-[10px]',
-                            booking.status === 'Active'
+                              booking.status === 'active'
                               ? 'bg-green-50 text-green-700'
-                              : booking.status === 'Booked'
-                              ? 'bg-blue-50 text-blue-700'
+                                : booking.status === 'requested'
+                                ? 'bg-yellow-50 text-yellow-700'
+                                : booking.status === 'confirmed'
+                                ? 'bg-blue-50 text-blue-700'
+                                : booking.status === 'expired'
+                                ? 'bg-orange-50 text-orange-700'
                               : 'bg-zinc-50 text-zinc-700'
                           )}
                         >
@@ -891,18 +888,18 @@ function getStatusColor(status: string): string {
 
 function getStatusBorderColor(status: string): string {
   switch (status) {
-    case 'Booked':
-      return '#f59e0b';
-    case 'Advance Paid':
-      return '#f97316';
-    case 'Confirmed':
-      return '#2563eb';
-    case 'Active':
-      return '#16a34a';
-    case 'Completed':
-      return '#6b7280';
-    case 'Cancelled':
-      return '#dc2626';
+    case 'requested':
+      return '#fde68a'; // Yellow
+    case 'confirmed':
+      return '#93c5fd'; // Blue
+    case 'active':
+      return '#86efac'; // Green
+    case 'completed':
+      return '#e4e4e7'; // Gray
+    case 'cancelled':
+      return '#fecaca'; // Red
+    case 'expired':
+      return '#fdba74'; // Orange
     default:
       return '#6b7280';
   }

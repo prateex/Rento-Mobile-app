@@ -1,0 +1,1 @@
+select * from shop_pickup_points limit 1;
